@@ -49,7 +49,8 @@ class BriefAssembler:
                         "description": "A concise statement about what the content aims to achieve for that reader."
                     }
                 },
-                "required": ["target_audience_persona", "primary_goal"]
+                "required": ["target_audience_persona", "primary_goal"],
+                "additionalProperties": False
             }
 
             response_json, error = self.openai_client.call_chat_completion(

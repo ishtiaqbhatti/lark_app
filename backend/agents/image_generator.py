@@ -241,6 +241,7 @@ class ImageGenerator:
                     }
                 },
                 "required": ["keywords"],
+                "additionalProperties": False
             },
         )
 
