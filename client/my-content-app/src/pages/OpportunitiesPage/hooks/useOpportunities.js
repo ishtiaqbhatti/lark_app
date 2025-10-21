@@ -55,6 +55,7 @@ export const useOpportunities = () => {
     } else {
         setSorter({ field: 'strategic_score', order: 'descend' });
     }
+    refetch();
   };
 
   return {
