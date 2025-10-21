@@ -6,7 +6,7 @@ def get_ai_content_analysis(
     openai_client: OpenAIClientWrapper,
     messages: List[Dict[str, str]],
     model: str,
-    max_tokens: int,
+    max_completion_tokens: int,
 ) -> Tuple[Dict[str, Any], str]:
     """
     Calls the OpenAI API to get content analysis and returns the response and any error.
@@ -39,7 +39,7 @@ def get_ai_content_analysis(
         messages=messages,
         schema=schema,
         model=model,
-        max_tokens=max_tokens,
+        max_completion_tokens=max_completion_tokens,
     )
 
     return response, error

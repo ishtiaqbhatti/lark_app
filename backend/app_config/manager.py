@@ -33,7 +33,7 @@ class ConfigManager:
         "onpage_max_domains_per_request": int,
         "onpage_max_tasks_per_request": int,
         "deep_dive_top_n_keywords": int,
-        "max_tokens_for_generation": int,
+        "max_completion_tokens_for_generation": int,
         "discovery_max_pages": int,
         "min_serp_results": int,
         "max_serp_results": int,

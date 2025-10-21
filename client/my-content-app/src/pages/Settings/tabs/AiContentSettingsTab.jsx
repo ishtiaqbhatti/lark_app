@@ -48,7 +48,7 @@ const AiContentSettingsTab = ({ settings, form }) => {
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item name="max_tokens_for_generation" label="Max Output Tokens">
+          <Form.Item name="max_completion_tokens_for_generation" label="Max Output Tokens">
             <InputNumber min={1000} max={32000} step={1000} style={{ width: '100%' }} />
           </Form.Item>
         </Col>

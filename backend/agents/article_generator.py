@@ -39,7 +39,7 @@ class SectionalArticleGenerator:
             messages=messages,
             schema=schema,
             model=model,
-            max_tokens=2048,
+            max_completion_tokens=2048,
         )
         cost = self.openai_client.latest_cost
         if error or not response:

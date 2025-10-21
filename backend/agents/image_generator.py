@@ -230,7 +230,7 @@ class ImageGenerator:
         extracted_keywords_str, error = self.openai_client.call_chat_completion(
             messages=prompt_messages,
                             model=self.config.get("default_model", "gpt-5-nano"),  # Use a cost-effective model for this            temperature=0.1,
-            max_tokens=50,  # Keep output very short
+            max_completion_tokens=50,  # Keep output very short
             schema={
                 "name": "extract_keywords",
                 "type": "object",
