@@ -22,7 +22,6 @@ def run_discovery_phase(
     discovery_modes: List[str],
     filters: Optional[List[Any]],
     order_by: Optional[List[str]],
-    serp_analysis_service: SerpAnalysisService,
     limit: Optional[int] = None,
     depth: Optional[int] = None,
     ignore_synonyms: Optional[bool] = False,
@@ -60,11 +59,6 @@ def run_discovery_phase(
     all_expanded_keywords = expansion_result.get("final_keywords", [])
     total_cost = expansion_result.get("total_cost", 0.0)
 
-    # --- SERP Analysis ---
-    analyzed_keywords = serp_analysis_service.analyze_keywords_serp(
-        all_expanded_keywords
-    )
-
     # --- Scoring and Disqualification Loop (Consolidated Logic) ---
     processed_opportunities = []
     disqualification_reasons = {}
@@ -76,7 +70,7 @@ def run_discovery_phase(
         "search_intent_info",
     ]
 
-    for opp in analyzed_keywords:
+    for opp in all_expanded_keywords:
         # Pre-validation of opportunity structure
         missing_keys = [
             key for key in required_keys if key not in opp or opp[key] is None
@@ -85,20 +79,6 @@ def run_discovery_phase(
             logger.warning(
                 f"Skipping opportunity '{opp.get('keyword')}' due to missing required data: {', '.join(missing_keys)}"
             )
-            continue
-
-        # Disqualify if SERP analysis indicates no blog opportunity
-        if "serp_analysis" in opp and not opp["serp_analysis"].get("blog_opportunity"):
-            opp["status"] = "rejected"
-            opp["blog_qualification_status"] = "rejected"
-            opp["blog_qualification_reason"] = (
-                "No blog opportunity based on SERP analysis"
-            )
-            status_counts["rejected"] += 1
-            disqualification_reasons["No blog opportunity"] = (
-                disqualification_reasons.get("No blog opportunity", 0) + 1
-            )
-            processed_opportunities.append(opp)
             continue
 
         # 3. Apply Hard Disqualification Rules (Cannibalization, Negative Keywords, etc.)

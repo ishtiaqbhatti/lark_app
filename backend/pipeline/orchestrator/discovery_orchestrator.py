@@ -81,7 +81,6 @@ class DiscoveryOrchestrator:
                 discovery_modes=discovery_modes,
                 filters=filters,
                 order_by=order_by,
-                serp_analysis_service=self.serp_analysis_service,
                 limit=limit,
                 depth=depth,
                 ignore_synonyms=ignore_synonyms,
