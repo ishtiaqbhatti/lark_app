@@ -1232,16 +1232,26 @@ class DatabaseManager:
             return {"status_counts": status_counts, "recent_items": recent_items}
 
     def get_total_api_cost(self, client_id: str) -> float:
-        """Calculates the total API cost for a client by summing the total_api_cost column."""
+        """Calculates the total API cost for a client by summing costs from both opportunities and discovery runs."""
         conn = self._get_conn()
         with conn:
             cursor = conn.cursor()
+            
+            # Sum cost from opportunities
             cursor.execute(
                 "SELECT SUM(total_api_cost) FROM opportunities WHERE client_id = ?",
                 (client_id,),
             )
-            total_cost = cursor.fetchone()[0] or 0.0
-            return total_cost
+            opportunities_cost = cursor.fetchone()[0] or 0.0
+            
+            # Sum cost from discovery runs
+            cursor.execute(
+                "SELECT SUM(total_api_cost) FROM discovery_runs WHERE client_id = ?",
+                (client_id,),
+            )
+            runs_cost = cursor.fetchone()[0] or 0.0
+            
+            return opportunities_cost + runs_cost
 
     def get_dashboard_data(self, client_id: str) -> Dict[str, Any]:
         """Retrieves aggregated data for the main dashboard UI."""
@@ -1396,10 +1406,16 @@ class DatabaseManager:
     ):
         """Marks a discovery run as completed and stores the results summary."""
         conn = self._get_conn()
+        total_cost = results_summary.get("total_cost", 0.0)
         with conn:
             conn.execute(
                 queries.UPDATE_DISCOVERY_RUN_COMPLETED,
-                (datetime.now().isoformat(), json.dumps(results_summary), run_id),
+                (
+                    datetime.now().isoformat(),
+                    json.dumps(results_summary),
+                    total_cost,
+                    run_id,
+                ),
             )
 
     def update_discovery_run_failed(self, run_id: int, error_message: str):

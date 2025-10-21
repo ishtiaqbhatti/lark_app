@@ -54,27 +54,6 @@ discovery_modes,
 discovery_max_pages,
         };
         
-        // Task 14.1: Check for high-cost operators
-        const highCostOperators = ['allinanchor:', 'allintext:', 'allintitle:', 'allinurl:', 'define:', 'id:', 'inanchor:', 'info:', 'intext:', 'intitle:', 'inurl:', 'link:', 'site:'];
-        const keywordValue = form.getFieldValue('keyword');
-        let hasHighCostOperator = false;
-        for (const op of highCostOperators) {
-            if (keywordValue.toLowerCase().includes(op)) {
-                hasHighCostOperator = true;
-                break;
-            }
-        }
-        if (hasHighCostOperator) {
-            Modal.warning({
-                title: 'High-Cost Search Operator Detected',
-                content: 'The keyword contains an advanced search operator (e.g., site:). This will result in a 5x API cost multiplier. Confirm you wish to proceed.',
-                onOk: () => {
-                    onSubmit({ runData });
-                },
-            });
-            return;
-        }
-        
         onSubmit({ runData });
       };
 

@@ -354,7 +354,7 @@ UPDATE discovery_runs SET status = ? WHERE id = ?;
 """
 
 UPDATE_DISCOVERY_RUN_COMPLETED = """
-UPDATE discovery_runs SET end_time = ?, status = 'completed', results_summary = ? WHERE id = ?;
+UPDATE discovery_runs SET end_time = ?, status = 'completed', results_summary = ?, total_api_cost = ? WHERE id = ?;
 """
 
 UPDATE_DISCOVERY_RUN_FAILED = """
