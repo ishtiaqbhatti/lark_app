@@ -142,6 +142,7 @@ class DynamicPromptAssembler:
 
         # Combine all dynamic instructions
         all_dynamic_instructions = dynamic_instructions + dynamic_serp_data_instructions
+        dynamic_instructions_str = "\n- ".join(all_dynamic_instructions)
 
         final_prompt_content = f"""You are an expert SEO writer. Generate a complete blog post package in JSON format based on the brief below.
 
@@ -149,7 +150,7 @@ class DynamicPromptAssembler:
         **Core Instructions:**
         {base_instructions}
         **Dynamic Strategic Instructions:**
-        - {"\n- ".join(all_dynamic_instructions)}
+        - {dynamic_instructions_str}
         **Mandatory Information & Structure:**
         - **WORD COUNT: The final article body MUST be AT LEAST {recommended_word_count} words.** This is a strict requirement.
         - To meet the word count, elaborate on each of the following sections, providing detailed explanations, examples, and insights.
