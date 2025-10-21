@@ -39,7 +39,7 @@ export const useOpportunities = () => {
       enabled: !!clientId,
       staleTime: 60 * 1000,
       onSuccess: (data) => {
-        setPagination(prev => ({ ...prev, total: data.total_count || 0 }));
+        setPagination(prev => ({ ...prev, total: data.total_items || 0 }));
       }
     }
   );
