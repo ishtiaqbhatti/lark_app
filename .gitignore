@@ -24,3 +24,7 @@ data/
 .vscode/
 .idea/
 *.log
+
+# Repomix output
+repomix-output.xml
+backend/repomix-output.xml
