@@ -86,4 +86,4 @@ class WorkflowOrchestrator(
         )
         self.content_auditor = ContentAuditor()
         self.prompt_assembler = DynamicPromptAssembler(self.db_manager)
-        self.serp_analysis_service = SerpAnalysisService(self.dataforseo_client)
+        self.serp_analysis_service = SerpAnalysisService(self.dataforseo_client, self.client_cfg)
