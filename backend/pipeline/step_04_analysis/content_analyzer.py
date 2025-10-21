@@ -241,12 +241,10 @@ class ContentAnalyzer:
                             },
                         },
                         "required": ["h2", "h3s"],
-                        "additionalProperties": False,
                     },
                 }
             },
             "required": ["article_structure"],
-            "additionalProperties": False,
         }
 
         response, error = self.openai_client.call_chat_completion(

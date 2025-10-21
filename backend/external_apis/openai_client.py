@@ -70,17 +70,14 @@ class OpenAIClientWrapper:
                     del response_kwargs['temperature']
 
                 if schema:
-                    if model in ['gpt-5-nano', 'gpt-5-mini']:
-                        response_kwargs["response_format"] = {"type": "json_object"}
-                    else:
-                        response_kwargs["response_format"] = {
-                            "type": "json_schema",
-                            "json_schema": {
-                                "name": schema.get("name", "structured_output"),
-                                "schema": schema,
-                                "strict": True,
-                            },
-                        }
+                    response_kwargs["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema.get("name", "structured_output"),
+                            "schema": schema,
+                            "strict": True,
+                        },
+                    }
 
                 response = self.client.chat.completions.create(**response_kwargs)
 
