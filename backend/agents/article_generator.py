@@ -39,7 +39,9 @@ class SectionalArticleGenerator:
             messages=messages,
             schema=schema,
             model=model,
-            max_completion_tokens=2048,
+            max_completion_tokens=self.config.get(
+                "max_completion_tokens_for_generation", 4096
+            ),
         )
         cost = self.openai_client.latest_cost
         if error or not response:
