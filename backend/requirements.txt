@@ -5,4 +5,4 @@ scikit-learn
 sentence-transformers
 requests
 textstat
-openai
+openaibleach
