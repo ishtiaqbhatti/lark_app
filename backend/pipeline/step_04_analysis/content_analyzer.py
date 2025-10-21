@@ -120,8 +120,9 @@ class ContentAnalyzer:
         prompt_sections = [f'**Primary Keyword:** "{keyword}"\n']
 
         if serp_data.get("knowledge_graph_facts"):
+            facts_list = '\n- '.join(serp_data['knowledge_graph_facts'])
             prompt_sections.append(
-                f"**Verified Facts from Knowledge Graph (Incorporate these as core facts):**\n- {'\n- '.join(serp_data['knowledge_graph_facts'])}\n"
+                f"**Verified Facts from Knowledge Graph (Incorporate these as core facts):**\n- {facts_list}\n"
             )
 
         if serp_data.get("paid_ad_copy"):
