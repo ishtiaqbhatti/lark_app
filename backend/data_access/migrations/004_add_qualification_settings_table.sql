@@ -1,0 +1,33 @@
+-- data_access/migrations/004_add_qualification_settings_table.sql
+
+CREATE TABLE qualification_settings (
+    client_id TEXT PRIMARY KEY,
+    ease_of_ranking_weight REAL,
+    traffic_potential_weight REAL,
+    commercial_intent_weight REAL,
+    serp_features_weight REAL,
+    growth_trend_weight REAL,
+    serp_freshness_weight REAL,
+    serp_volatility_weight REAL,
+    competitor_weakness_weight REAL,
+    competitor_performance_weight REAL,
+    informational_intent_weight REAL,
+    navigational_intent_weight REAL,
+    transactional_intent_weight REAL,
+    competitor_strength_weight REAL,
+    trend_weight REAL,
+    seasonality_weight REAL,
+    review_threshold REAL,
+    disqualification_rules TEXT,
+    brand_keywords TEXT,
+    competitor_brand_keywords TEXT,
+    min_search_volume INTEGER,
+    max_keyword_difficulty INTEGER,
+    negative_keywords TEXT,
+    prohibited_intents TEXT,
+    max_y_pixel_threshold INTEGER,
+    max_forum_results_in_top_10 INTEGER,
+    max_ecommerce_results_in_top_10 INTEGER,
+    disallowed_page_types_in_top_3 TEXT,
+    FOREIGN KEY (client_id) REFERENCES clients (client_id)
+);

@@ -1,0 +1,152 @@
+import logging
+from typing import List, Dict, Any, Optional
+
+from data_access.database_manager import DatabaseManager
+from external_apis.dataforseo_client_v2 import DataForSEOClientV2
+from pipeline.step_01_discovery.keyword_expander import KeywordExpander
+from pipeline.step_01_discovery.disqualification_rules import (
+    apply_disqualification_rules,
+)
+from pipeline.step_01_discovery.cannibalization_checker import CannibalizationChecker
+from pipeline.step_03_prioritization.scoring_engine import ScoringEngine
+from pipeline.step_01_discovery.blog_content_qualifier import assign_status_from_score
+from backend.services.serp_analysis_service import SerpAnalysisService
+
+
+def run_discovery_phase(
+    seed_keywords: List[str],
+    dataforseo_client: DataForSEOClientV2,
+    db_manager: "DatabaseManager",
+    client_id: str,
+    client_cfg: Dict[str, Any],
+    discovery_modes: List[str],
+    filters: Optional[List[Any]],
+    order_by: Optional[List[str]],
+    serp_analysis_service: SerpAnalysisService,
+    limit: Optional[int] = None,
+    depth: Optional[int] = None,
+    ignore_synonyms: Optional[bool] = False,
+    include_clickstream_data: Optional[bool] = None,
+    closely_variants: Optional[bool] = None,
+    run_logger: Optional[logging.Logger] = None,
+) -> Dict[str, Any]:
+    logger = run_logger or logging.getLogger(__name__)
+    logger.info("--- Starting Consolidated Keyword Discovery & Scoring Phase ---")
+
+    expander = KeywordExpander(dataforseo_client, client_cfg, logger)
+    cannibalization_checker = CannibalizationChecker(
+        client_cfg.get("target_domain"), dataforseo_client, client_cfg, db_manager
+    )
+    scoring_engine = ScoringEngine(client_cfg)
+
+    # 1. Get keywords that already exist for this client to avoid API calls for them.
+    existing_keywords = set(db_manager.get_all_processed_keywords_for_client(client_id))
+    logger.info(
+        f"Found {len(existing_keywords)} existing keywords to exclude from API request."
+    )
+
+    # 2. Expand seed keywords into a large list of opportunities.
+    expansion_result = expander.expand_seed_keyword(
+        seed_keywords,
+        discovery_modes,
+        filters,
+        order_by,
+        existing_keywords,
+        limit,
+        depth,
+        ignore_synonyms,
+    )
+
+    all_expanded_keywords = expansion_result.get("final_keywords", [])
+    total_cost = expansion_result.get("total_cost", 0.0)
+
+    # --- SERP Analysis ---
+    analyzed_keywords = serp_analysis_service.analyze_keywords_serp(
+        all_expanded_keywords
+    )
+
+    # --- Scoring and Disqualification Loop (Consolidated Logic) ---
+    processed_opportunities = []
+    disqualification_reasons = {}
+    status_counts = {"qualified": 0, "review": 0, "rejected": 0}
+    required_keys = [
+        "keyword_info",
+        "keyword_properties",
+        "serp_info",
+        "search_intent_info",
+    ]
+
+    for opp in analyzed_keywords:
+        # Pre-validation of opportunity structure
+        missing_keys = [
+            key for key in required_keys if key not in opp or opp[key] is None
+        ]
+        if missing_keys:
+            logger.warning(
+                f"Skipping opportunity '{opp.get('keyword')}' due to missing required data: {', '.join(missing_keys)}"
+            )
+            continue
+
+        # Disqualify if SERP analysis indicates no blog opportunity
+        if "serp_analysis" in opp and not opp["serp_analysis"].get("blog_opportunity"):
+            opp["status"] = "rejected"
+            opp["blog_qualification_status"] = "rejected"
+            opp["blog_qualification_reason"] = (
+                "No blog opportunity based on SERP analysis"
+            )
+            status_counts["rejected"] += 1
+            disqualification_reasons["No blog opportunity"] = (
+                disqualification_reasons.get("No blog opportunity", 0) + 1
+            )
+            processed_opportunities.append(opp)
+            continue
+
+        # 3. Apply Hard Disqualification Rules (Cannibalization, Negative Keywords, etc.)
+        is_disqualified, reason, is_hard_stop = apply_disqualification_rules(
+            opp, client_cfg, cannibalization_checker
+        )
+
+        if is_disqualified and is_hard_stop:
+            opp["status"] = "rejected"
+            opp["blog_qualification_status"] = "rejected"
+            opp["blog_qualification_reason"] = reason
+            status_counts["rejected"] += 1
+            disqualification_reasons[reason] = (
+                disqualification_reasons.get(reason, 0) + 1
+            )
+        else:
+            # 4. Score the remaining keywords
+            score, breakdown = scoring_engine.calculate_score(opp)
+            opp["strategic_score"] = score
+            opp["score_breakdown"] = breakdown
+
+            # 5. Assign Status based on Strategic Score
+            status, reason = assign_status_from_score(opp, score, client_cfg)
+            opp["status"] = status
+            opp["blog_qualification_status"] = status
+            opp["blog_qualification_reason"] = reason
+            status_counts[status.split("_")[0]] = (
+                status_counts.get(status.split("_")[0], 0) + 1
+            )  # count qualified/review/rejected
+
+        processed_opportunities.append(opp)
+
+    disqualified_count = status_counts.get("rejected", 0)
+    passed_count = status_counts.get("qualified", 0) + status_counts.get("review", 0)
+
+    logger.info(
+        f"Scoring and Qualification complete. Passed: {passed_count}, Rejected: {disqualified_count}."
+    )
+
+    stats = {
+        **expansion_result,
+        "disqualification_reasons": disqualification_reasons,
+        "disqualified_count": disqualified_count,
+        "final_qualified_count": passed_count,
+    }
+
+    return {
+        "stats": stats,
+        "total_cost": total_cost,
+        "opportunities": processed_opportunities,
+    }
