@@ -81,11 +81,9 @@ class NewKeywordExpander:
         # W21 FIX: Set default order_by if not provided, now structured as a dict
         if not order_by:
             ideas_suggestions_orderby = [
-                "keyword_properties.keyword_difficulty,asc",
                 "keyword_info.search_volume,desc",
             ]
             related_orderby = [
-                "keyword_data.keyword_properties.keyword_difficulty,asc",
                 "keyword_data.keyword_info.search_volume,desc",
             ]
             structured_orderby = {
