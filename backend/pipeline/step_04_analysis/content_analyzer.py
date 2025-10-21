@@ -80,7 +80,9 @@ class ContentAnalyzer:
             openai_client=self.openai_client,
             messages=ai_prompt_messages,
             model=self.config.get("default_model", "gpt-5-nano"),
-            max_completion_tokens=2048,
+            max_completion_tokens=self.config.get(
+                "max_completion_tokens_for_generation", 4096
+            ),
         )
         total_ai_cost = self.openai_client.latest_cost
 
@@ -251,6 +253,9 @@ class ContentAnalyzer:
             messages=prompt_messages,
             schema=schema,
             model=self.config.get("default_model", "gpt-5-nano"),
+            max_completion_tokens=self.config.get(
+                "max_completion_tokens_for_generation", 4096
+            ),
         )
         total_ai_cost = self.openai_client.latest_cost
 

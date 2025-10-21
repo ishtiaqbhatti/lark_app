@@ -87,7 +87,7 @@ class OpenAIClientWrapper:
                 if response.choices and response.choices[0].finish_reason == "length":
                     self.logger.warning(
                         f"OpenAI API response was truncated because the token limit was reached. "
-                        f"Consider increasing 'max_tokens_for_generation' in settings.ini. "
+                        f"Consider increasing 'max_completion_tokens_for_generation' in settings.ini. "
                         f"Current limit for this call: {max_completion_tokens}."
                     )
 
