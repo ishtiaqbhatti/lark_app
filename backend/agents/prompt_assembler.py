@@ -91,8 +91,9 @@ class DynamicPromptAssembler:
         dynamic_serp_data_instructions = []
 
         if brief.get("knowledge_graph_facts"):
+            facts_str = "\n- ".join(brief["knowledge_graph_facts"])
             dynamic_serp_data_instructions.append(
-                f"**CRITICAL:** Incorporate these verified facts from Google's Knowledge Graph directly into the article to ensure factual accuracy and boost E-A-T:\n- {'\n- '.join(brief['knowledge_graph_facts'])}"
+                f"**CRITICAL:** Incorporate these verified facts from Google's Knowledge Graph directly into the article to ensure factual accuracy and boost E-A-T:\n- {facts_str}"
             )
 
         if brief.get("paid_ad_copy"):
@@ -103,23 +104,27 @@ class DynamicPromptAssembler:
             )
 
         if brief.get("top_organic_sitelinks"):
+            sitelinks_str = "\n- ".join(brief["top_organic_sitelinks"])
             dynamic_serp_data_instructions.append(
-                f"**MANDATORY:** Include dedicated sections (H2s or H3s) covering the following high-priority subtopics identified from competitor sitelinks:\n- {'\n- '.join(brief['top_organic_sitelinks'])}"
+                f"**MANDATORY:** Include dedicated sections (H2s or H3s) covering the following high-priority subtopics identified from competitor sitelinks:\n- {sitelinks_str}"
             )
 
         if brief.get("top_organic_faqs"):
+            faqs_str = "\n- ".join(brief["top_organic_faqs"])
             dynamic_serp_data_instructions.append(
-                f"**MANDATORY:** Create a dedicated 'Frequently Asked Questions' section (as an H2) at the end of the article, using these exact questions from competitor FAQ snippets:\n- {'\n- '.join(brief['top_organic_faqs'])}"
+                f"**MANDATORY:** Create a dedicated 'Frequently Asked Questions' section (as an H2) at the end of the article, using these exact questions from competitor FAQ snippets:\n- {faqs_str}"
             )
 
         if brief.get("ai_overview_sources"):
+            sources_str = "\n- ".join(brief["ai_overview_sources"])
             dynamic_serp_data_instructions.append(
-                f"**STRATEGIC:** Give analytical priority to concepts and insights derived from these authoritative sources used by Google's own AI Overview:\n- {'\n- '.join(brief['ai_overview_sources'])}"
+                f"**STRATEGIC:** Give analytical priority to concepts and insights derived from these authoritative sources used by Google's own AI Overview:\n- {sources_str}"
             )
 
         if brief.get("discussion_snippets"):
+            snippets_str = "\n- ".join(brief["discussion_snippets"])
             dynamic_serp_data_instructions.append(
-                f"**TONE & EXPERIENCE:** Analyze the tone, specific pain points, and real-world language from these discussion snippets. Infuse the article with a personal, experience-driven, and authentic voice to directly address user concerns:\n- {'\n- '.join(brief['discussion_snippets'])}"
+                f"**TONE & EXPERIENCE:** Analyze the tone, specific pain points, and real-world language from these discussion snippets. Infuse the article with a personal, experience-driven, and authentic voice to directly address user concerns:\n- {snippets_str}"
             )
 
         # Append to dynamic instructions list
