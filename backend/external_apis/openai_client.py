@@ -45,7 +45,7 @@ class OpenAIClientWrapper:
         schema: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_completion_tokens: int = 4096,
         retries: int = 3,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
@@ -62,7 +62,7 @@ class OpenAIClientWrapper:
                     "model": model,
                     "messages": messages,
                     "temperature": temperature,
-                    "max_tokens": max_tokens,
+                    "max_completion_tokens": max_completion_tokens,
                 }
 
                 # gpt-5-nano and gpt-5-mini do not support temperature
@@ -88,7 +88,7 @@ class OpenAIClientWrapper:
                     self.logger.warning(
                         f"OpenAI API response was truncated because the token limit was reached. "
                         f"Consider increasing 'max_tokens_for_generation' in settings.ini. "
-                        f"Current limit for this call: {max_tokens}."
+                        f"Current limit for this call: {max_completion_tokens}."
                     )
 
                 if response.usage:
