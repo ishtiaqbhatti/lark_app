@@ -38,6 +38,7 @@ class BriefAssembler:
             schema = {
                 "name": "generate_brief_attributes",
                 "description": "Generates a target audience persona and primary goal for a piece of content.",
+                "type": "object",
                 "properties": {
                     "target_audience_persona": {
                         "type": "string",
