@@ -10,12 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 class DiscoveryOrchestrator:
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.serp_analysis_service = SerpAnalysisService(
-            self.dataforseo_client, self.client_cfg
-        )
-
     def _run_discovery_background(
         self,
         job_id: str,
