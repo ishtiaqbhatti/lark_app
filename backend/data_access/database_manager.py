@@ -1055,7 +1055,6 @@ class DatabaseManager:
                     "default_wordpress_categories",
                     "default_wordpress_tags",
                     "ugc_and_parasite_domains",
-                    "discovery_order_by",
                     "high_value_categories",
                     "hostile_serp_features",
                     "final_validation_non_blog_domains",
