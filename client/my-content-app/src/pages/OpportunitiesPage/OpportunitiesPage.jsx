@@ -183,10 +183,8 @@ const OpportunitiesPage = () => {
 
   const defaultColumns = [
     ...baseColumns,
-    { title: 'Status', dataIndex: 'status', key: 'status', sorter: true, render: (status) => <Tag>{status?.replace(/_/g, ' ').toUpperCase()}</Tag> },
     { title: 'Strategic Score', dataIndex: 'strategic_score', key: 'strategic_score', sorter: true, render: (score) => score ? <strong>{score.toFixed(1)}</strong> : 'N/A' },
     { title: 'CPC', dataIndex: 'cpc', key: 'cpc', sorter: true, render: (cpc) => cpc ? `$${cpc.toFixed(2)}` : 'N/A' },
-    { title: 'Last Activity', key: 'activity', render: (_, record) => record.latest_job_id ? <JobStatusIndicator jobId={record.latest_job_id} /> : <Text type="secondary">Idle</Text> },
     { title: 'Actions', key: 'actions', fixed: 'right', render: renderActions },
   ];
 
