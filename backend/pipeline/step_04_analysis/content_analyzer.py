@@ -133,42 +133,48 @@ class ContentAnalyzer:
             )
 
         if serp_data.get("top_organic_sitelinks"):
+            sitelinks_list = '\n- '.join(serp_data['top_organic_sitelinks'])
             prompt_sections.append(
-                f"**High-Priority Subtopics from Competitor Sitelinks (Must include these as H2/H3s):**\n- {'\n- '.join(serp_data['top_organic_sitelinks'])}\n"
+                f"**High-Priority Subtopics from Competitor Sitelinks (Must include these as H2/H3s):**\n- {sitelinks_list}\n"
             )
 
         if serp_data.get("top_organic_faqs"):
+            faqs_list = '\n- '.join(serp_data['top_organic_faqs'])
             prompt_sections.append(
-                f"**High-Priority Questions from Competitor FAQ Snippets (Must include these in a dedicated FAQ section):**\n- {'\n- '.join(serp_data['top_organic_faqs'])}\n"
+                f"**High-Priority Questions from Competitor FAQ Snippets (Must include these in a dedicated FAQ section):**\n- {faqs_list}\n"
             )
 
         if serp_data.get("ai_overview_sources"):
+            sources_list = '\n- '.join(serp_data['ai_overview_sources'])
             prompt_sections.append(
-                f"**Authoritative Sources Used by Google's AI Overview (Give analytical priority to concepts from these sources):**\n- {'\n- '.join(serp_data['ai_overview_sources'])}\n"
+                f"**Authoritative Sources Used by Google's AI Overview (Give analytical priority to concepts from these sources):**\n- {sources_list}\n"
             )
 
         if serp_data.get("discussion_snippets"):
+            snippets_list = '\n- '.join(serp_data['discussion_snippets'])
             prompt_sections.append(
-                f"**Voice of the Customer from Discussions/Forums (Analyze for tone, pain points, and authentic perspective):**\n- {'\n- '.join(serp_data['discussion_snippets'])}\n"
+                f"**Voice of the Customer from Discussions/Forums (Analyze for tone, pain points, and authentic perspective):**\n- {snippets_list}\n"
             )
 
         # Add basic organic results for general context
         if serp_data.get("top_organic_results"):
-            org_titles_desc = [
+            org_titles_desc_list = '\n- '.join([
                 f"Title: {r['title']}\nDescription: {r['description']}"
                 for r in serp_data["top_organic_results"]
-            ]
+            ])
             prompt_sections.append(
-                f"**Top Organic Result Snippets (for general content analysis):**\n- {'\n- '.join(org_titles_desc)}\n"
+                f"**Top Organic Result Snippets (for general content analysis):**\n- {org_titles_desc_list}\n"
             )
 
         if serp_data.get("people_also_ask"):
+            paa_list = '\n- '.join(serp_data['people_also_ask'])
             prompt_sections.append(
-                f"**People Also Ask Questions:**\n- {'\n- '.join(serp_data['people_also_ask'])}\n"
+                f"**People Also Ask Questions:**\n- {paa_list}\n"
             )
         if serp_data.get("related_searches"):
+            related_list = '\n- '.join(serp_data['related_searches'])
             prompt_sections.append(
-                f"**Related Searches:**\n- {'\n- '.join(serp_data['related_searches'])}\n"
+                f"**Related Searches:**\n- {related_list}\n"
             )
         if serp_data.get("ai_overview_content"):
             prompt_sections.append(
