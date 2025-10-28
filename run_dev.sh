@@ -34,6 +34,6 @@ echo "Backend is ready."
 
 # 3. Start the frontend in the foreground
 echo "Starting React frontend..."
-(cd client/my-content-app && npm run dev)
+(cd /Users/ishtiaqbhatti/Desktop/clients/production/lark_app/client/my-content-app && npm run dev)
 
 # When the user presses Ctrl+C, the trap will run the cleanup function.

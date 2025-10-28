@@ -3,6 +3,7 @@ import { ClientContext } from '../context/ClientContext'; // Import ClientContex
 
 // Create an Axios instance for API communication
 const apiClient = axios.create({
+  baseURL: '', // Force relative paths
   // The base URL is handled by the Vite proxy, so we can use relative paths like /api
   headers: {
     'Content-Type': 'application/json', // Default content type for requests

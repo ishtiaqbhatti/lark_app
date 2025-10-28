@@ -13,11 +13,11 @@ class NewClientRequest(BaseModel):
     client_name: str
 
 
-router = APIRouter()
+router = APIRouter(prefix="/clients", tags=["clients"])
 logger = logging.getLogger(__name__)
 
 
-@router.get("/clients")
+@router.get("/")
 async def get_all_clients(db: DatabaseManager = Depends(get_db)):
     logger.info("Received request for /clients")
     clients = db.get_clients()
@@ -27,7 +27,7 @@ async def get_all_clients(db: DatabaseManager = Depends(get_db)):
     return clients
 
 
-@router.get("/clients/{client_id}/settings")
+@router.get("/{client_id}/settings")
 async def get_client_settings_endpoint(
     client_id: str,
     db: DatabaseManager = Depends(get_db),
@@ -46,7 +46,7 @@ async def get_client_settings_endpoint(
     return settings
 
 
-@router.get("/clients/{client_id}/dashboard-stats")
+@router.get("/{client_id}/dashboard-stats")
 async def get_dashboard_stats_endpoint(
     client_id: str,
     db: DatabaseManager = Depends(get_db),
@@ -65,7 +65,7 @@ async def get_dashboard_stats_endpoint(
     return stats
 
 
-@router.get("/clients/{client_id}/dashboard")
+@router.get("/{client_id}/dashboard")
 async def get_dashboard_data_endpoint(
     client_id: str,
     db: DatabaseManager = Depends(get_db),
@@ -83,10 +83,20 @@ async def get_dashboard_data_endpoint(
         dashboard_data = db.get_dashboard_data(client_id)
         logger.info("Successfully fetched dashboard data.")
         if not dashboard_data:
-            logger.warning(f"No dashboard data found for client {client_id}")
-            raise HTTPException(
-                status_code=404, detail=f"Dashboard data not found for client '{client_id}'"
-            )
+            logger.warning(f"No dashboard data found for client {client_id}. Returning a default empty structure.")
+            # Return a default, empty structure that matches the frontend's expectations
+            return {
+                "kpis": {
+                    "totalOpportunities": 0,
+                    "contentGenerated": 0,
+                    "totalTrafficValue": 0,
+                    "totalApiCost": 0,
+                },
+                "funnelData": [],
+                "actionItems": {"awaitingApproval": [], "failed": []},
+                "status_counts": {},
+                "recent_items": [],
+            }
         logger.info("Returning dashboard data.")
         return dashboard_data
     except Exception as e:
@@ -94,7 +104,7 @@ async def get_dashboard_data_endpoint(
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
-@router.get("/clients/{client_id}/processed-keywords")
+@router.get("/{client_id}/processed-keywords")
 async def get_processed_keywords_endpoint(
     client_id: str,
     db: DatabaseManager = Depends(get_db),
@@ -110,7 +120,7 @@ async def get_processed_keywords_endpoint(
     return keywords
 
 
-@router.post("/clients/{client_id}/check-keywords")
+@router.post("/{client_id}/check-keywords")
 async def check_existing_keywords_endpoint(
     client_id: str,
     keywords: List[str],
@@ -128,7 +138,7 @@ async def check_existing_keywords_endpoint(
 
 
 # ADD the new endpoint to the router:
-@router.get("/clients/{client_id}/search-all-assets")
+@router.get("/{client_id}/search-all-assets")
 async def search_all_assets_endpoint(
     client_id: str,
     query: str,
@@ -177,7 +187,7 @@ async def search_all_assets_endpoint(
     return list(unique_results.values())
 
 
-@router.get("/clients/{client_id}/opportunities/high-priority")
+@router.get("/{client_id}/opportunities/high-priority")
 async def get_high_priority_opportunities_endpoint(
     client_id: str,
     limit: int = 5,
@@ -194,7 +204,7 @@ async def get_high_priority_opportunities_endpoint(
     return opportunities
 
 
-@router.post("/clients")
+@router.post("/")
 async def add_new_client(
     request: NewClientRequest, db: DatabaseManager = Depends(get_db)
 ):

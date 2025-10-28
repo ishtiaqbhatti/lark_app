@@ -1,6 +1,6 @@
 # api/main.py
 # api/main.py (New File, or existing FastAPI entry point)
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from fastapi.staticfiles import StaticFiles  # ADD THIS for Task 3
 import logging
 import os
@@ -57,12 +57,16 @@ async def startup_event():
         settings,
     )
 
-    app.include_router(auth.router, prefix="/api")
-    app.include_router(clients.router, prefix="/api")
-    app.include_router(opportunities.router, prefix="/api")
-    app.include_router(discovery.router, prefix="/api")
-    app.include_router(orchestrator.router, prefix="/api")
-    app.include_router(jobs.router, prefix="/api")
-    app.include_router(qualification_settings.router, prefix="/api")
-    app.include_router(qualification_strategies.router, prefix="/api")
-    app.include_router(settings.router, prefix="/api")
+    api_router = APIRouter(prefix="/api")
+
+    api_router.include_router(auth.router)
+    api_router.include_router(clients.router)
+    api_router.include_router(opportunities.router)
+    api_router.include_router(discovery.router)
+    api_router.include_router(orchestrator.router)
+    api_router.include_router(jobs.router)
+    api_router.include_router(qualification_settings.router)
+    api_router.include_router(qualification_strategies.router)
+    api_router.include_router(settings.router)
+
+    app.include_router(api_router)
