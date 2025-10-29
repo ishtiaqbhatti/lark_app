@@ -14,6 +14,17 @@ from app_config.manager import ConfigManager
 from data_access.database_manager import DatabaseManager
 from jobs import JobManager  # Import the class
 
+from .routers import (
+    auth,
+    clients,
+    opportunities,
+    discovery,
+    orchestrator,
+    jobs,
+    qualification_settings,
+    qualification_strategies,
+    settings,
+)
 from . import globals as api_globals
 
 
@@ -45,18 +56,15 @@ async def startup_event():
 
     logger.info("FastAPI application startup complete. Dependencies initialized.")
 
-    from .routers import (
-        auth,
-        clients,
-        opportunities,
-        discovery,
-        orchestrator,
-        jobs,
-        qualification_settings,
-        qualification_strategies,
-        settings,
-    )
-
+    app.include_router(auth.router)
+    app.include_router(clients.router)
+    app.include_router(opportunities.router)
+    app.include_router(discovery.router)
+    app.include_router(orchestrator.router)
+    app.include_router(jobs.router)
+    app.include_router(qualification_settings.router)
+    app.include_router(qualification_strategies.router)
+    app.include_router(settings.router)
     app.include_router(auth.router, prefix="/api")
     app.include_router(clients.router, prefix="/api")
     app.include_router(opportunities.router, prefix="/api")

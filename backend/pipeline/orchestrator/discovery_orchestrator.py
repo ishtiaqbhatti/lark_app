@@ -25,6 +25,8 @@ class DiscoveryOrchestrator:
         include_clickstream_data: Optional[bool] = None,
         closely_variants: Optional[bool] = None,
         exact_match: Optional[bool] = None,
+        negative_keywords: Optional[List[str]] = None,
+        discovery_max_pages: Optional[int] = None,
     ):
         """Internal method to execute the consolidated discovery phase for a job."""
         log_dir = "discovery_logs"
@@ -86,6 +88,8 @@ class DiscoveryOrchestrator:
                 ignore_synonyms=ignore_synonyms,
                 include_clickstream_data=include_clickstream_data,
                 closely_variants=closely_variants,
+                negative_keywords=negative_keywords,
+                discovery_max_pages=discovery_max_pages,
                 run_logger=run_logger,
             )
 
@@ -150,6 +154,8 @@ class DiscoveryOrchestrator:
         include_clickstream_data: Optional[bool] = None,
         closely_variants: Optional[bool] = None,
         exact_match: Optional[bool] = None,
+        negative_keywords: Optional[List[str]] = None,
+        discovery_max_pages: Optional[int] = None,
     ) -> str:
         """
         Public method to initiate a discovery run asynchronously.
@@ -173,6 +179,8 @@ class DiscoveryOrchestrator:
                 include_clickstream_data,
                 closely_variants,
                 exact_match,
+                negative_keywords,
+                discovery_max_pages,
             ),
         )
         return job_id

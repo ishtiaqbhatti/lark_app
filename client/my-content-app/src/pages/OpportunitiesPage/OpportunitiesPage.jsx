@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Layout, Typography, Table, Tag, Button, Space, Tooltip, Modal, Card, Tabs } from 'antd';
-import { RocketOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { RocketOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined, LineChartOutlined } from '@ant-design/icons';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useOpportunities } from './hooks/useOpportunities';
 import { useNotifications } from '../../context/NotificationContext';
 import { useMutation, useQueryClient } from 'react-query';
@@ -37,6 +38,8 @@ const OpportunitiesPage = () => {
     opportunities, isLoading, pagination, 
     handleTableChange, activeStatus, setActiveStatus, statusCounts
   } = useOpportunities();
+  const [isTrendModalVisible, setIsTrendModalVisible] = useState(false);
+  const [selectedOpportunity, setSelectedOpportunity] = useState(null);
   const { showNotification } = useNotifications();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -75,6 +78,16 @@ const OpportunitiesPage = () => {
       },
     }
   );
+
+  const showTrendModal = (opportunity) => {
+    setSelectedOpportunity(opportunity);
+    setIsTrendModalVisible(true);
+  };
+
+  const handleTrendModalCancel = () => {
+    setIsTrendModalVisible(false);
+    setSelectedOpportunity(null);
+  };
 
   const { mutate: rejectOpportunityMutation, isLoading: isRejecting } = useMutation(
     (opportunityId) => rejectOpportunity(opportunityId),
@@ -168,6 +181,13 @@ const OpportunitiesPage = () => {
     { title: 'Keyword', dataIndex: 'keyword', key: 'keyword', sorter: true, render: (text, record) => <a onClick={(e) => { e.stopPropagation(); navigate(`/opportunities/${record.id}`)}}>{text}</a> },
     { title: 'Search Volume', dataIndex: 'search_volume', key: 'search_volume', sorter: true, render: (sv) => sv ? sv.toLocaleString() : 'N/A' },
     { title: 'KD', dataIndex: 'keyword_difficulty', key: 'keyword_difficulty', sorter: true, render: (kd) => kd != null ? kd : 'N/A' },
+    {
+      title: 'Trend',
+      key: 'trend',
+      render: (_, record) => (
+        <Button icon={<LineChartOutlined />} onClick={(e) => { e.stopPropagation(); showTrendModal(record); }} />
+      ),
+    },
   ];
 
   const rejectedColumns = [
@@ -225,6 +245,24 @@ const OpportunitiesPage = () => {
           rowClassName="table-row-hover"
         />
       </Card>
+      <Modal
+        title={`Search Volume Trend for "${selectedOpportunity?.keyword}"`}
+        visible={isTrendModalVisible}
+        onCancel={handleTrendModalCancel}
+        footer={null}
+        width={800}
+      >
+        <ResponsiveContainer width="100%" height={400}>
+          <LineChart data={selectedOpportunity?.monthly_searches?.map(monthly => ({ month: `${monthly.year}-${String(monthly.month).padStart(2, '0')}`, search_volume: monthly.search_volume }))}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="month" />
+            <YAxis />
+            <RechartsTooltip />
+            <Legend />
+            <Line type="monotone" dataKey="search_volume" stroke="#8884d8" />
+          </LineChart>
+        </ResponsiveContainer>
+      </Modal>
     </Content></Layout>
   );
 };

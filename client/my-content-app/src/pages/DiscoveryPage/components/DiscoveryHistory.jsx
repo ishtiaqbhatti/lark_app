@@ -89,6 +89,18 @@ const DiscoveryHistory = ({ runs, totalRuns, page, setPage, isLoading, onRerun, 
       sorter: (a, b) => a.status.localeCompare(b.status),
     },
     {
+      title: 'Cost',
+      dataIndex: 'results_summary',
+      key: 'cost',
+      render: (summary) => {
+        if (summary && summary.total_cost) {
+          return `$${summary.total_cost.toFixed(2)}`;
+        }
+        return 'N/A';
+      },
+      sorter: (a, b) => (a.results_summary?.total_cost || 0) - (b.results_summary?.total_cost || 0),
+    },
+    {
       title: 'Seed Keywords',
       dataIndex: 'parameters',
       key: 'seed_keywords',

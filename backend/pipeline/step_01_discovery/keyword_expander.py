@@ -31,6 +31,7 @@ class KeywordExpander:
         limit: Optional[int] = None,
         depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = False,
+        discovery_max_pages: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Delegates the keyword expansion to the new NewKeywordExpander.
@@ -48,6 +49,7 @@ class KeywordExpander:
             limit,
             depth,
             ignore_synonyms,
+            discovery_max_pages,
         )
 
         self.logger.info(

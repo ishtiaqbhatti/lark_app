@@ -26,6 +26,7 @@ class NewKeywordExpander:
         limit: Optional[int] = None,
         depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = False,
+        discovery_max_pages: Optional[int] = None,
     ) -> Dict[str, Any]:
         if not discovery_modes:
             raise ValueError("At least one discovery mode must be selected.")
@@ -112,6 +113,7 @@ class NewKeywordExpander:
             limit=limit,
             depth=depth,
             ignore_synonyms_override=ignore_synonyms,
+            discovery_max_pages=discovery_max_pages,
         )
         self.logger.info(
             f"Burst discovery completed. Found {len(all_ideas)} raw keyword ideas. Cost: ${total_cost:.4f}"

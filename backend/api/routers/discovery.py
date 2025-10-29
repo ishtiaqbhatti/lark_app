@@ -84,32 +84,58 @@ async def get_available_filters():
     return [
         {
             "id": "keyword_ideas",
-            "name": "Broad Market Exploration",
-            "description": "Discover a wide range of foundational keywords related to your core topics. Ideal for initial research and uncovering new content pillars.",
+            "name": "Broad Market Research",
+            "description": "Get a wide range of keyword ideas related to your topic.",
             "filters": construct_paths("", base_filters),
             "sorting": [{"name": "relevance", "label": "Relevance"}]
             + construct_paths("", base_sorting),
+            "defaults": {
+                "filters": [
+                    {"field": "keyword_info.search_volume", "operator": ">", "value": 500},
+                    {"field": "keyword_properties.keyword_difficulty", "operator": "<", "value": 30},
+                ],
+                "order_by": ["keyword_info.search_volume,desc"],
+            },
         },
         {
             "id": "keyword_suggestions",
-            "name": "Targeted Query Expansion",
-            "description": "Generate specific, long-tail variations of your seed keywords. Perfect for finding niche opportunities and targeted article ideas.",
+            "name": "Long-Tail Keywords",
+            "description": "Find specific, multi-word keywords that are easier to rank for.",
             "filters": construct_paths("", base_filters),
             "sorting": construct_paths("", base_sorting),
+            "defaults": {
+                "filters": [
+                    {"field": "keyword_info.search_volume", "operator": ">", "value": 100},
+                    {"field": "keyword_properties.keyword_difficulty", "operator": "<", "value": 20},
+                ],
+                "order_by": ["keyword_info.search_volume,desc"],
+            },
         },
         {
             "id": "related_keywords",
-            "name": "Semantic & Competitor Analysis",
-            "description": "Find semantically related terms and phrases that your competitors may be ranking for. Excellent for expanding content depth and authority.",
+            "name": "Semantic Keyword Expansion",
+            "description": "Find semantically related terms to expand content depth and discover related topics.",
             "filters": construct_paths("keyword_data.", base_filters),
             "sorting": construct_paths("keyword_data.", base_sorting),
+            "defaults": {
+                "filters": [
+                    {"field": "keyword_data.keyword_info.search_volume", "operator": ">", "value": 100},
+                ],
+                "order_by": ["keyword_data.keyword_info.search_volume,desc"],
+            },
         },
         {
             "id": "find_questions",
-            "name": "Find Questions",
-            "description": "Discover question-based keywords (e.g., 'how to...', 'what is...') related to your core topics.",
+            "name": "Customer Questions",
+            "description": "Find out what questions your customers are asking about your topic.",
             "filters": construct_paths("", base_filters),
             "sorting": construct_paths("", base_sorting),
+            "defaults": {
+                "filters": [
+                    {"field": "keyword_info.search_volume", "operator": ">", "value": 50},
+                ],
+                "order_by": ["keyword_info.search_volume,desc"],
+            },
         },
     ]
 
@@ -129,23 +155,27 @@ async def start_discovery_run_async(
     try:
         filters = request.filters
         limit = request.limit or 1000
-        discovery_modes = ["keyword_ideas", "keyword_suggestions", "related_keywords"]
+        discovery_modes = request.discovery_modes
+        depth = request.depth
 
-        if limit <= 500:
-            depth = 2
-        elif limit <= 2000:
-            depth = 3
-        else:
-            depth = 4
+        if not depth:
+            if limit <= 500:
+                depth = 2
+            elif limit <= 2000:
+                depth = 3
+            else:
+                depth = 4
 
         parameters = {
             "seed_keywords": request.seed_keywords,
+            "negative_keywords": request.negative_keywords,
             "discovery_modes": discovery_modes,
             "filters": filters,
             "order_by": request.order_by,
             "filters_override": request.filters_override,
             "limit": limit,
             "depth": depth,
+            "discovery_max_pages": request.discovery_max_pages,
             "include_clickstream_data": request.include_clickstream_data,  # NEW
             "closely_variants": request.closely_variants,  # NEW
             "ignore_synonyms": request.ignore_synonyms,  # NEW
@@ -166,6 +196,8 @@ async def start_discovery_run_async(
             request.ignore_synonyms,
             request.include_clickstream_data,  # NEW
             request.closely_variants,  # NEW
+            request.negative_keywords,
+            request.discovery_max_pages,
         )
         return {"job_id": job_id, "message": f"Discovery run job {job_id} started."}
     except Exception as e:
@@ -196,34 +228,7 @@ async def get_discovery_runs(
     return {"items": runs, "total_items": total_count, "page": page, "limit": limit}
 
 
-# def calculate_discovery_cost(request: KeywordListRequest) -> Dict[str, Any]:
 
-# # ... (existing setup) ...
-
-#     # ... lines 141-143 unchanged
-
-#     # item_cost = num_items * cost_per_item
-
-#     # estimated_cost = task_cost + item_cost
-
-
-#     # explanation = [
-
-#     #     f"{num_tasks} tasks @ ${cost_per_task:.4f} each: ${task_cost:.4f}",
-
-#     #     f"{num_items} items @ ${cost_per_item:.4f} each: ${item_cost:.4f}"
-
-#     # ]
-
-#     pass
-
-# if request.include_clickstream_data:
-
-#     estimated_cost *= 2
-
-#     explanation.append("Cost multiplied by 2x due to 'include_clickstream_data' flag.")
-
-# return {"estimated_cost": round(estimated_cost, 2), "explanation": explanation}
 
 
 @router.post("/discovery-runs/rerun/{run_id}")

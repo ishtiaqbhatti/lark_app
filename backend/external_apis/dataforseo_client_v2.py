@@ -195,7 +195,14 @@ class DataForSEOClientV2:
                         f"HTTP error during DataForSEO API request to {full_url}: {e}",
                         exc_info=True,
                     )
-                    return None, 0.0
+                    failure_response = {
+                        "status_code": response.status_code if 'response' in locals() else 500,
+                        "status_message": f"HTTP error: {e}",
+                        "tasks": [], "tasks_error": 1, "cost": 0.0
+                    }
+                    if self.enable_cache:
+                        self.db_manager.set_api_cache(cache_key, failure_response)
+                    return failure_response, 0.0
             except requests.exceptions.RequestException as e:
                 self.logger.error(
                     f"Network error during DataForSEO API request to {full_url}: {e}",
@@ -204,9 +211,24 @@ class DataForSEOClientV2:
                 if attempt < retries - 1:
                     time.sleep(backoff_factor * (2**attempt))
                     continue
-                return None, 0.0
+                
+                failure_response = {
+                    "status_code": 503, # Service unavailable
+                    "status_message": f"Network error after multiple retries: {e}",
+                    "tasks": [], "tasks_error": 1, "cost": 0.0
+                }
+                if self.enable_cache:
+                    self.db_manager.set_api_cache(cache_key, failure_response)
+                return failure_response, 0.0
 
-        return None, 0.0
+        failure_response = {
+            "status_code": 429, # Most likely reason to get here
+            "status_message": "API request failed after multiple retries (likely rate-limited).",
+            "tasks": [], "tasks_error": 1, "cost": 0.0
+        }
+        if self.enable_cache:
+            self.db_manager.set_api_cache(cache_key, failure_response)
+        return failure_response, 0.0
 
     def _prioritize_and_limit_filters(self, filters: Optional[List[Any]]) -> List[Any]:
         """Enforces the 8-filter maximum rule by prioritizing essential filters."""
@@ -838,7 +860,17 @@ class DataForSEOClientV2:
 
         api_filters = []
         for i, f in enumerate(filters):
-            api_filters.append([f["field"], f["operator"], f["value"]])
+            if f["operator"] == "in" and isinstance(f["value"], list):
+                # Handle 'in' operator by creating a chain of 'or' conditions
+                in_clauses = []
+                for val in f["value"]:
+                    in_clauses.append([f["field"], "=", val])
+                    if len(in_clauses) < len(f["value"]):
+                        in_clauses.append("or")
+                api_filters.append(in_clauses)
+            else:
+                api_filters.append([f["field"], f["operator"], f["value"]])
+            
             if i < len(filters) - 1:
                 api_filters.append("and")
         return api_filters
@@ -858,13 +890,14 @@ class DataForSEOClientV2:
         include_clickstream_override: Optional[bool] = None,
         closely_variants_override: Optional[bool] = None,
         exact_match_override: Optional[bool] = None,
+        discovery_max_pages: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], float]:
         """
         Performs a comprehensive discovery burst using Keyword Ideas, Suggestions, and Related Keywords endpoints.
         """
         all_items = []
         total_cost = 0.0
-        max_pages = client_cfg.get("discovery_max_pages", 1)
+        max_pages = discovery_max_pages or client_cfg.get("discovery_max_pages", 1)
 
         # Dynamic parameters (fall back to client_cfg if override is None)
         ignore_synonyms = (
@@ -924,36 +957,35 @@ class DataForSEOClientV2:
         if "keyword_suggestions" in discovery_modes:
             self.logger.info("Fetching keyword suggestions...")
             suggestions_endpoint = self.LABS_KEYWORD_SUGGESTIONS
-            for seed_keyword in seed_keywords:
-                suggestions_task = {
-                    "keyword": seed_keyword,
-                    "location_code": location_code,
-                    "language_code": language_code,
-                    "limit": int(limit or 100),
-                    "include_serp_info": True,
-                    "exact_match": exact_match,
-                    "ignore_synonyms": ignore_synonyms,
-                    "include_seed_keyword": True,
-                    "filters": self._prioritize_and_limit_filters(
-                        self._convert_filters_to_api_format(filters.get("suggestions"))
-                    ),
-                    "order_by": order_by.get("suggestions") if order_by else None,
-                    "include_clickstream_data": include_clickstream,
-                }
-                suggestions_items, cost = self.post_with_paging(
-                    suggestions_endpoint,
-                    suggestions_task,
-                    max_pages=max_pages,
-                    tag=f"discovery_suggestions:{seed_keyword[:20]}",
-                )
-                total_cost += cost
-                for item in suggestions_items:
-                    item["discovery_source"] = "keyword_suggestions"
-                    item["depth"] = 0
-                    all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
-                self.logger.info(
-                    f"Found {len(suggestions_items)} suggestions for '{seed_keyword}'."
-                )
+            suggestions_task = {
+                "keywords": seed_keywords,
+                "location_code": location_code,
+                "language_code": language_code,
+                "limit": int(limit or 100),
+                "include_serp_info": True,
+                "exact_match": exact_match,
+                "ignore_synonyms": ignore_synonyms,
+                "include_seed_keyword": True,
+                "filters": self._prioritize_and_limit_filters(
+                    self._convert_filters_to_api_format(filters.get("suggestions"))
+                ),
+                "order_by": order_by.get("suggestions") if order_by else None,
+                "include_clickstream_data": include_clickstream,
+            }
+            suggestions_items, cost = self.post_with_paging(
+                suggestions_endpoint,
+                suggestions_task,
+                max_pages=max_pages,
+                tag="discovery_suggestions",
+            )
+            total_cost += cost
+            for item in suggestions_items:
+                item["discovery_source"] = "keyword_suggestions"
+                item["depth"] = 0
+                all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
+            self.logger.info(
+                f"Found {len(suggestions_items)} suggestions."
+            )
 
         if "related_keywords" in discovery_modes:
             self.logger.info("Fetching related keywords...")
@@ -991,6 +1023,4 @@ class DataForSEOClientV2:
                         all_items.append(
                             DataForSEOMapper.sanitize_keyword_data_item(keyword_data)
                         )
-            self.logger.info(f"Total raw items from all sources: {len(all_items)}")
-
         return all_items, total_cost

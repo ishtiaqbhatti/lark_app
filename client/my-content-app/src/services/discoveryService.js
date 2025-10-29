@@ -8,10 +8,6 @@ export const getDiscoveryRuns = (clientId, page = 1) => {
   return apiClient.get(`/api/clients/${clientId}/discovery-runs`, { params: { page } });
 };
 
-export const estimateCost = ({ clientId, seed_keywords, signal }) => {
-  return apiClient.post(`/api/discovery/estimate-cost`, { seed_keywords }, { signal });
-};
-
 export const preCheckKeywords = ({ clientId, seed_keywords, signal }) => {
   return apiClient.post(`/api/discovery/pre-check`, { seed_keywords }, { signal });
 };

@@ -5,8 +5,6 @@ import { useDiscoveryRuns } from './hooks/useDiscoveryRuns';
 import DiscoveryForm from './components/DiscoveryForm';
 import DiscoveryHistory from './components/DiscoveryHistory';
 import { useClient } from '../../hooks/useClient';
-import CostConfirmationModal from '../../components/CostConfirmationModal';
-import { estimateActionCost } from '../../services/orchestratorService';
 
 const { Content } = Layout;
 const { Title } = Typography;
@@ -55,7 +53,8 @@ const DiscoveryPage = () => {
                   navigate(`/discovery/run/${newRun.id}`);
                 },
                 onError: (err) => {
-                  message.error(`Failed to start discovery run: ${err.message}`);
+                  const errorDetail = err.response?.data?.detail || err.message;
+                  message.error(`Failed to start discovery run: ${errorDetail}`);
                 }
               });
             }}

@@ -27,6 +27,8 @@ def run_discovery_phase(
     ignore_synonyms: Optional[bool] = False,
     include_clickstream_data: Optional[bool] = None,
     closely_variants: Optional[bool] = None,
+    negative_keywords: Optional[List[str]] = None,
+    discovery_max_pages: Optional[int] = None,
     run_logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
     logger = run_logger or logging.getLogger(__name__)
@@ -54,10 +56,26 @@ def run_discovery_phase(
         limit,
         depth,
         ignore_synonyms,
+        discovery_max_pages,
     )
 
     all_expanded_keywords = expansion_result.get("final_keywords", [])
     total_cost = expansion_result.get("total_cost", 0.0)
+
+    # --- Negative Keyword Filtering ---
+    if negative_keywords:
+        initial_count = len(all_expanded_keywords)
+        # Normalize negative keywords to lowercase for case-insensitive matching
+        lower_negative_keywords = [kw.lower() for kw in negative_keywords]
+        
+        all_expanded_keywords = [
+            opp for opp in all_expanded_keywords
+            if not any(neg_kw in opp.get('keyword', '').lower() for neg_kw in lower_negative_keywords)
+        ]
+        
+        removed_count = initial_count - len(all_expanded_keywords)
+        if removed_count > 0:
+            logger.info(f"Removed {removed_count} keywords based on negative keyword list.")
 
     # --- Scoring and Disqualification Loop (Consolidated Logic) ---
     processed_opportunities = []

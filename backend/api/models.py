@@ -35,6 +35,8 @@ class DiscoveryRunRequest(BaseModel):
     # NEW: Parameters for user flexibility
     include_clickstream_data: Optional[bool] = None
     closely_variants: Optional[bool] = None
+    negative_keywords: Optional[List[str]] = None
+    discovery_max_pages: Optional[int] = None
 
 
 class KeywordListRequest(BaseModel):

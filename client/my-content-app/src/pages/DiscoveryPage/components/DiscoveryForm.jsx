@@ -1,14 +1,73 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Input, Button, Typography, Form, Row, Col, InputNumber, Select, Switch, Modal } from 'antd';
 import { RocketOutlined } from '@ant-design/icons';
 import { useDiscoveryFilters } from '../hooks/useDiscoveryFilters';
+import { useClient } from '../../../hooks/useClient';
+import { preCheckKeywords } from '../../../services/discoveryService';
 
 const { Title } = Typography;
 const { Option } = Select;
 
 const DiscoveryForm = ({ isSubmitting, onSubmit }) => {
   const [form] = Form.useForm();
-  useDiscoveryFilters();
+  const { filtersData, isLoading: isLoadingFilters } = useDiscoveryFilters();
+  const [selectedDiscoveryModes, setSelectedDiscoveryModes] = useState(['keyword_ideas', 'keyword_suggestions', 'related_keywords']);
+  const { clientId } = useClient();
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationStatus, setValidationStatus] = useState('');
+  const [validationMessage, setValidationMessage] = useState('');
+
+  const keywordValue = Form.useWatch('keyword', form);
+
+  useEffect(() => {
+    if (filtersData && selectedDiscoveryModes.length > 0) {
+      const firstModeWithDefaults = filtersData.find(mode => mode.id === selectedDiscoveryModes[0] && mode.defaults);
+      if (firstModeWithDefaults) {
+        const { filters } = firstModeWithDefaults.defaults;
+        const searchVolumeFilter = filters.find(f => f.field.includes('search_volume'));
+        const difficultyFilter = filters.find(f => f.field.includes('keyword_difficulty'));
+
+        form.setFieldsValue({
+          search_volume_value: searchVolumeFilter ? searchVolumeFilter.value : null,
+          difficulty_value: difficultyFilter ? difficultyFilter.value : null,
+        });
+      }
+    }
+  }, [selectedDiscoveryModes, filtersData, form]);
+
+  useEffect(() => {
+    if (!keywordValue) {
+      setValidationStatus('');
+      setValidationMessage('');
+      return;
+    }
+
+    setIsValidating(true);
+    setValidationStatus('validating');
+    const handler = setTimeout(() => {
+      preCheckKeywords({ clientId, seed_keywords: [keywordValue] })
+        .then(response => {
+          if (response.existing_keywords.length > 0) {
+            setValidationStatus('warning');
+            setValidationMessage('This keyword has been processed before.');
+          } else {
+            setValidationStatus('success');
+            setValidationMessage('');
+          }
+        })
+        .catch(error => {
+          setValidationStatus('error');
+          setValidationMessage(error.response?.data?.detail || 'Error validating keyword.');
+        })
+        .finally(() => {
+          setIsValidating(false);
+        });
+    }, 500);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [keywordValue, clientId]);
 
       const onFinish = (values) => {
         const currentFilters = form.getFieldValue('filters'); // Assuming 'filters' is the form item holding the filter array
@@ -19,10 +78,9 @@ const DiscoveryForm = ({ isSubmitting, onSubmit }) => {
             });
             return;
         }
-        const { keyword, limit, search_volume_value, difficulty_value, competition_level, search_intent, include_clickstream_data, closely_variants, ignore_synonyms, exact_match } = values;
+        const { keyword, negative_keywords, limit, search_volume_value, difficulty_value, competition_level, search_intent, closely_variants, ignore_synonyms, exact_match, discovery_modes, depth } = values;
 
 // ADDITION: Read discovery mode and max pages from form values
-const discovery_modes = form.getFieldValue('discovery_modes') || ['ideas'];
 const discovery_max_pages = form.getFieldValue('discovery_max_pages') || 1;
 
         // ... (rest of filtering logic) ...
@@ -43,15 +101,16 @@ const discovery_max_pages = form.getFieldValue('discovery_max_pages') || 1;
 
         const runData = {
           seed_keywords: [keyword],
+          negative_keywords: negative_keywords ? negative_keywords.split(',').map(kw => kw.trim()) : [],
           limit: limit,
           filters: filters.length > 0 ? filters : null,
-          include_clickstream_data,
           closely_variants,
           ignore_synonyms,
           exact_match,
 // ADD these fields to runData:
 discovery_modes,
 discovery_max_pages,
+depth,
         };
         
         onSubmit({ runData });
@@ -84,6 +143,9 @@ discovery_max_pages,
   
 
           search_intent: ['informational'],
+          discovery_modes: ['keyword_ideas', 'keyword_suggestions', 'related_keywords'],
+          depth: 3,
+          discovery_max_pages: 1,
 
   
 
@@ -95,7 +157,7 @@ discovery_max_pages,
 
   
 
-          <Form.Item name="keyword" rules={[{ required: true, message: 'Please enter a seed keyword.' }]}>
+          <Form.Item name="keyword" rules={[{ required: true, message: 'Please enter a seed keyword.' }]} hasFeedback validateStatus={validationStatus} help={validationMessage}>
 
   
 
@@ -104,6 +166,30 @@ discovery_max_pages,
   
 
           </Form.Item>
+
+          <Form.Item name="negative_keywords" label="Negative Keywords (Optional)" tooltip="Comma-separated list of keywords to exclude from the results.">
+            <Input placeholder="e.g., free, jobs, careers" />
+          </Form.Item>
+
+          <Form.Item name="discovery_modes" label="Discovery Modes" rules={[{ required: true, message: 'Please select at least one discovery mode.' }]}>
+            <Select
+              mode="multiple"
+              placeholder="Select discovery modes"
+              loading={isLoadingFilters}
+              style={{ width: '100%' }}
+              onChange={setSelectedDiscoveryModes}
+            >
+              {filtersData?.map(mode => (
+                <Option key={mode.id} value={mode.id}>{mode.name}</Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          {selectedDiscoveryModes.includes('related_keywords') && (
+            <Form.Item name="depth" label="Related Keywords Depth" tooltip="How many levels of related keywords to fetch. Higher values are more expensive.">
+              <InputNumber min={1} max={5} style={{ width: '100%' }} />
+            </Form.Item>
+          )}
 
   
 
@@ -135,6 +221,12 @@ discovery_max_pages,
 
   
 
+            </Col>
+
+            <Col span={12}>
+              <Form.Item name="discovery_max_pages" label="Max Pages" tooltip="How many pages of results to fetch from the API. Higher values are more expensive.">
+                <InputNumber min={1} max={10} style={{ width: '100%' }} />
+              </Form.Item>
             </Col>
 
   
@@ -255,34 +347,79 @@ discovery_max_pages,
 
   
 
-          </Row>
+                    </Row>
 
-          <Row gutter={16}>
-            <Col span={24}>
-              <Form.Item name="include_clickstream_data" label="Include Clickstream Demographics" valuePropName="checked" tooltip="Provides audience demographic data but doubles the API cost of the discovery run.">
-                <Switch />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="closely_variants" label="Use Phrase Match" valuePropName="checked" tooltip="Limits results to keywords that are close variants of the seed keyword (more targeted).">
-                <Switch />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="exact_match" label="Use Exact Match" valuePropName="checked" tooltip="Returns only keywords that exactly match the seed keyword's phrasing.">
-                <Switch />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="ignore_synonyms" label="Ignore Synonyms" valuePropName="checked" tooltip="Returns only core keywords, excluding highly similar variations.">
-                <Switch />
-              </Form.Item>
-            </Col>
-          </Row>
+  
+
+                    <Row gutter={16}>
+
+  
+
+                                  <Col span={12}>
+
+  
+
+                                    <Form.Item name="closely_variants" label="Targeted Variations" valuePropName="checked" tooltip="For Keyword Ideas, this limits results to keywords that are close variants of the seed keyword. Not applicable to other modes.">
+
+  
+
+                                      <Switch />
+
+  
+
+                                    </Form.Item>
+
+  
+
+                                  </Col>
+
+  
+
+                                  <Col span={12}>
+
+  
+
+                                    <Form.Item name="exact_match" label="Precise Targeting" valuePropName="checked" tooltip="For Keyword Suggestions, this returns only keywords that exactly match the seed keyword's phrasing. Not applicable to other modes.">
+
+  
+
+                                      <Switch />
+
+  
+
+                                    </Form.Item>
+
+  
+
+                                  </Col>
+
+  
+
+                                  <Col span={12}>
+
+  
+
+                                    <Form.Item name="ignore_synonyms" label="Focus on Core Term" valuePropName="checked" tooltip="Returns only core keywords, excluding highly similar variations.">
+
+  
+
+                                      <Switch />
+
+  
+
+                                    </Form.Item>
+
+  
+
+                                  </Col>
+
+  
+
+                    </Row>
 
       <Row justify="end" align="middle" style={{ marginTop: '24px' }}>
         <Col>
-          <Button type="primary" htmlType="submit" icon={<RocketOutlined />} loading={isSubmitting} size="large">
+          <Button type="primary" htmlType="submit" icon={<RocketOutlined />} loading={isSubmitting} size="large" disabled={isValidating || validationStatus === 'error'}>
             Find Opportunities
           </Button>
         </Col>
