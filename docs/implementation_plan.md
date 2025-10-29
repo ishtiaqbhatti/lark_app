@@ -64,24 +64,12 @@ This document outlines a phased implementation plan to address the weaknesses an
     *   `lark_app/client/my-content-app/src/pages/DiscoveryPage/components/DiscoveryForm.jsx`:
         *   Add a `Select` component to allow the user to choose `order_by` fields (e.g., "Search Volume (desc)", "CPC (desc)").
         *   Make the `closely_variants` and `exact_match` switches context-aware, disabling them if the selected `discovery_modes` do not support them.
-        *   Add a new `Switch` for `include_clickstream_data`, with a tooltip explaining the extra cost and benefits (audience data).
 
 ---
 
 ## Phase 3: Advanced Features & Strategic Insights
 
 **Goal:** Introduce new features that provide deeper strategic value and analysis.
-
-### Task 3.1: Implement Thematic Clustering
-
-*   **Action:** Process and display keywords grouped by their API-provided categories.
-*   **Files to Modify:**
-    *   **Backend:**
-        *   `lark_app/backend/services/opportunities_service.py` (or a new service): Create a function that processes a list of opportunities and groups them by the `categories` field.
-        *   `lark_app/backend/api/routers/opportunities.py`: Add a new endpoint to return these clustered results for a given run ID.
-    *   **Frontend:**
-        *   `lark_app/client/my-content-app/src/pages/DiscoveryPage/components/RunDetailsPage.jsx`:
-            *   Instead of a simple table, create a new view (e.g., a tab or a new page) that displays keywords in collapsible panels, where each panel header is a category name.
 
 ### Task 3.2: Utilize Core Keyword & Synonym Data
 
@@ -92,14 +80,3 @@ This document outlines a phased implementation plan to address the weaknesses an
     *   **Frontend:**
         *   `lark_app/client/my-content-app/src/pages/DiscoveryPage/components/RunDetailsPage.jsx`:
             *   Modify the results table to be groupable. Display the `core_keyword` as the parent row, with all its synonyms/variations as expandable child rows.
-
-### Task 3.3: Introduce a "Keyword Basket"
-
-*   **Action:** Develop a new feature to allow users to collect and manage keywords across multiple runs.
-*   **Files to Modify:**
-    *   **Backend:**
-        *   `lark_app/backend/data_access/models.py`: Create a new database model for the "Keyword Basket".
-        *   `lark_app/backend/api/routers/`: Create a new router (`basket.py`) with endpoints to add/remove keywords from the basket and retrieve the current basket.
-    *   **Frontend:**
-        *   `lark_app/client/my-content-app/src/pages/DiscoveryPage/components/RunDetailsPage.jsx`: Add a checkbox to each row and a button to "Add selected to Basket".
-        *   Create a new page/component to display the contents of the Keyword Basket, allowing for final review, analysis, and export.

@@ -1,3 +1,4 @@
+import ErrorBoundary from './components/ErrorBoundary';
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import MainLayout from './components/layout/MainLayout';
@@ -30,30 +31,32 @@ function App() {
   }
 
   return (
-    <Routes>
-      {isAuthenticated ? (
-        <>
-          <Route path="/" element={<MainLayout />}>
-            <Route index element={<DashboardPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/clients" element={<ClientDashboardPage />} />
-            <Route path="/opportunities" element={<OpportunitiesPage />} />
-            <Route path="/opportunities/:opportunityId" element={<OpportunityDetailPage />} />
-            <Route path="/discovery/run/:runId" element={<RunDetailsPage />} />
-            <Route path="/activity-log" element={<ActivityLogPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/discovery" element={<DiscoveryPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Route>
-          <Route path="/blog/:opportunityId" element={<BlogPage />} />
-        </>
-      ) : (
-        <>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="*" element={<LoginPage />} />
-        </>
-      )}
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        {isAuthenticated ? (
+          <>
+            <Route path="/" element={<MainLayout />}>
+              <Route index element={<DashboardPage />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/clients" element={<ClientDashboardPage />} />
+              <Route path="/opportunities" element={<OpportunitiesPage />} />
+              <Route path="/opportunities/:opportunityId" element={<OpportunityDetailPage />} />
+              <Route path="/discovery/run/:runId" element={<RunDetailsPage />} />
+              <Route path="/activity-log" element={<ActivityLogPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/discovery" element={<DiscoveryPage />} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Route>
+            <Route path="/blog/:opportunityId" element={<BlogPage />} />
+          </>
+        ) : (
+          <>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="*" element={<LoginPage />} />
+          </>
+        )}
+      </Routes>
+    </ErrorBoundary>
   );
 }
 

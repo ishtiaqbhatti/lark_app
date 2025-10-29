@@ -1331,30 +1331,66 @@ class DatabaseManager:
                 (json.dumps(wordpress_payload), opportunity_id),
             )
 
-    def get_api_cache(self, key: str) -> Optional[Dict[str, Any]]:
-        """Retrieves a cached item from the api_cache table."""
-        conn = self._get_conn()
-        with conn:
-            cursor = conn.execute(queries.SELECT_API_CACHE, (key,))
-            row = cursor.fetchone()
-            if row:
-                # Check TTL during retrieval
-                if row["timestamp"] + (row["ttl_days"] * 86400) > time.time():
-                    return json.loads(row["data"])
-                else:
-                    self.logger.debug(f"Cache STALE for key: {key}")
-                    self.delete_api_cache_by_key(key)  # Clean up stale entry
+    def get_api_cache(self, cache_key: str, ttl_seconds: int = 3600) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves cached API response if still valid.
+        
+        Args:
+            cache_key: MD5 hash of the request
+            ttl_seconds: Time-to-live in seconds
+        
+        Returns:
+            Cached response or None if expired/not found
+        """
+        try:
+            query = """
+                SELECT response_data, created_at 
+                FROM api_cache 
+                WHERE cache_key = ? 
+                LIMIT 1
+            """
+            conn = self._get_conn()
+            with conn:
+                result = conn.execute(query, (cache_key,)).fetchone()
+            
+            if not result:
+                return None
+            
+            response_data, created_at = result
+            created_datetime = datetime.fromisoformat(created_at)
+            
+            # Check if expired
+            if datetime.utcnow() - created_datetime > timedelta(seconds=ttl_seconds):
+                self.logger.debug(f"Cache expired for key {cache_key[:8]}...")
+                return None
+            
+            self.logger.info(f"Cache HIT for key {cache_key[:8]}...")
+            return json.loads(response_data)
+            
+        except Exception as e:
+            self.logger.error(f"Cache retrieval error: {e}")
             return None
-
-    def set_api_cache(self, key: str, value: Any, ttl_days: int = 7):
-        """Stores an item in the api_cache table."""
-        conn = self._get_conn()
-        with conn:
-            conn.execute(
-                queries.INSERT_API_CACHE,
-                (key, json.dumps(value), time.time(), ttl_days),
-            )
-        self.logger.debug(f"Cache SET for key: {key}")
+    
+    def set_api_cache(self, cache_key: str, response_data: Dict[str, Any]) -> None:
+        """
+        Stores API response in cache.
+        """
+        try:
+            query = """
+                INSERT INTO api_cache (cache_key, response_data, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    response_data = excluded.response_data,
+                    created_at = excluded.created_at
+            """
+            conn = self._get_conn()
+            with conn:
+                conn.execute(
+                    query, 
+                    (cache_key, json.dumps(response_data), datetime.utcnow().isoformat())
+                )
+        except Exception as e:
+            self.logger.error(f"Cache storage error: {e}")
 
     def delete_api_cache_by_key(self, key: str):
         """Deletes a specific item from the api_cache table."""

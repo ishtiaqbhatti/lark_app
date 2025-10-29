@@ -18,7 +18,7 @@ class DiscoveryOrchestrator:
         discovery_modes: List[str],
         filters: Optional[List[Any]],
         order_by: Optional[List[str]],
-        filters_override: Optional[Dict[str, Any]],
+        disqualification_rules_override: Optional[Dict[str, Any]],
         limit: Optional[int] = None,
         depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = None,
@@ -26,7 +26,6 @@ class DiscoveryOrchestrator:
         closely_variants: Optional[bool] = None,
         exact_match: Optional[bool] = None,
         negative_keywords: Optional[List[str]] = None,
-        discovery_max_pages: Optional[int] = None,
     ):
         """Internal method to execute the consolidated discovery phase for a job."""
         log_dir = "discovery_logs"
@@ -48,9 +47,9 @@ class DiscoveryOrchestrator:
         run_config = self.global_cfg_manager.load_client_config(
             self.client_id, self.db_manager
         )
-        if filters_override:
-            run_logger.info(f"Applying filter overrides: {filters_override}")
-            run_config.update(filters_override)
+        if disqualification_rules_override:
+            run_logger.info(f"Applying disqualification rule overrides: {disqualification_rules_override}")
+            run_config.update(disqualification_rules_override)
 
         run_logger.info(
             f"Starting discovery with modes: {discovery_modes}, filters: {filters}, order_by: {order_by}, limit: {limit}, depth: {depth}"
@@ -89,7 +88,6 @@ class DiscoveryOrchestrator:
                 include_clickstream_data=include_clickstream_data,
                 closely_variants=closely_variants,
                 negative_keywords=negative_keywords,
-                discovery_max_pages=discovery_max_pages,
                 run_logger=run_logger,
             )
 
@@ -147,7 +145,7 @@ class DiscoveryOrchestrator:
         discovery_modes: List[str],
         filters: Optional[List[Any]] = None,
         order_by: Optional[List[str]] = None,
-        filters_override: Optional[Dict[str, Any]] = None,
+        disqualification_rules_override: Optional[Dict[str, Any]] = None,
         limit: Optional[int] = None,
         depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = None,
@@ -155,7 +153,6 @@ class DiscoveryOrchestrator:
         closely_variants: Optional[bool] = None,
         exact_match: Optional[bool] = None,
         negative_keywords: Optional[List[str]] = None,
-        discovery_max_pages: Optional[int] = None,
     ) -> str:
         """
         Public method to initiate a discovery run asynchronously.
@@ -172,7 +169,7 @@ class DiscoveryOrchestrator:
                 discovery_modes,
                 filters,
                 order_by,
-                filters_override,
+                disqualification_rules_override,
                 limit,
                 depth,
                 ignore_synonyms,
@@ -180,7 +177,6 @@ class DiscoveryOrchestrator:
                 closely_variants,
                 exact_match,
                 negative_keywords,
-                discovery_max_pages,
             ),
         )
         return job_id

@@ -20,13 +20,12 @@ class NewKeywordExpander:
         self,
         seed_keywords: List[str],
         discovery_modes: List[str],
-        filters: Optional[List[Any]],
-        order_by: Optional[List[str]],
+        structured_filters: Optional[Dict[str, Any]],
+        structured_orderby: Optional[Dict[str, List[str]]],
         existing_keywords: set,
         limit: Optional[int] = None,
         depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = False,
-        discovery_max_pages: Optional[int] = None,
     ) -> Dict[str, Any]:
         if not discovery_modes:
             raise ValueError("At least one discovery mode must be selected.")
@@ -56,51 +55,6 @@ class NewKeywordExpander:
         if not location_code or not language_code:
             raise ValueError("Location and language codes must be set.")
 
-        # The frontend provides filters with 'keyword_data.' prefix, suitable for 'related_keywords'.
-        # We need to create versions of these filters without the prefix for other modes.
-
-        related_filters = filters
-        ideas_filters = []
-        if filters:
-            for f in filters:
-                new_filter = f.copy()
-                if "field" in new_filter and new_filter["field"].startswith(
-                    "keyword_data."
-                ):
-                    new_filter["field"] = new_filter["field"][len("keyword_data.") :]
-                ideas_filters.append(new_filter)
-
-        # Suggestions filters are the same as ideas filters (no prefix)
-        suggestions_filters = ideas_filters
-
-        structured_filters = {
-            "ideas": ideas_filters,
-            "suggestions": suggestions_filters,
-            "related": related_filters,
-        }
-
-        # W21 FIX: Set default order_by if not provided, now structured as a dict
-        if not order_by:
-            ideas_suggestions_orderby = [
-                "keyword_info.search_volume,desc",
-            ]
-            related_orderby = [
-                "keyword_data.keyword_info.search_volume,desc",
-            ]
-            structured_orderby = {
-                "ideas": ideas_suggestions_orderby,
-                "suggestions": ideas_suggestions_orderby,
-                "related": related_orderby,
-            }
-        else:
-            # If order_by is provided from frontend, structure it for each mode
-            related_orderby = [f"keyword_data.{rule}" for rule in order_by]
-            structured_orderby = {
-                "ideas": order_by,
-                "suggestions": order_by,
-                "related": related_orderby,
-            }
-
         # Make a single burst call to the DataForSEOClientV2
         all_ideas, total_cost = self.client.get_keyword_ideas(
             seed_keywords=seed_keywords,
@@ -108,12 +62,11 @@ class NewKeywordExpander:
             language_code=language_code,
             client_cfg=self.config,
             discovery_modes=discovery_modes,
-            filters=structured_filters,  # Use the structured filters directly
+            filters=structured_filters,
             order_by=structured_orderby,
             limit=limit,
             depth=depth,
             ignore_synonyms_override=ignore_synonyms,
-            discovery_max_pages=discovery_max_pages,
         )
         self.logger.info(
             f"Burst discovery completed. Found {len(all_ideas)} raw keyword ideas. Cost: ${total_cost:.4f}"

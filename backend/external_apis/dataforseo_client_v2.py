@@ -230,6 +230,67 @@ class DataForSEOClientV2:
             self.db_manager.set_api_cache(cache_key, failure_response)
         return failure_response, 0.0
 
+    def _post_request_with_retry(
+        self, 
+        endpoint: str, 
+        data: List[Dict[str, Any]], 
+        tag: Optional[str] = None,
+        max_retries: int = 3,
+        backoff_factor: float = 2.0
+    ) -> Tuple[Optional[Dict[str, Any]], float]:
+        """
+        POST request with exponential backoff retry logic.
+        """
+        last_exception = None
+        
+        for attempt in range(max_retries):
+            try:
+                return self._post_request(endpoint, data, tag)
+            
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    wait_time = backoff_factor ** attempt
+                    self.logger.warning(
+                        f"Timeout on attempt {attempt + 1}/{max_retries}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                continue
+            
+            except requests.exceptions.ConnectionError as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    wait_time = backoff_factor ** attempt
+                    self.logger.warning(
+                        f"Connection error on attempt {attempt + 1}/{max_retries}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                continue
+            
+            except requests.exceptions.HTTPError as e:
+                # Don't retry on 4xx errors (client errors)
+                if e.response.status_code < 500:
+                    raise
+                
+                last_exception = e
+                if attempt < max_retries - 1:
+                    wait_time = backoff_factor ** attempt
+                    self.logger.warning(
+                        f"Server error {e.response.status_code} on attempt {attempt + 1}/{max_retries}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                continue
+        
+        # If we get here, all retries failed
+        self.logger.error(
+            f"All {max_retries} retry attempts failed for {endpoint}. "
+            f"Last error: {last_exception}"
+        )
+        raise last_exception
+
     def _prioritize_and_limit_filters(self, filters: Optional[List[Any]]) -> List[Any]:
         """Enforces the 8-filter maximum rule by prioritizing essential filters."""
         if not filters:
@@ -664,46 +725,48 @@ class DataForSEOClientV2:
         self,
         endpoint: str,
         initial_task: Dict[str, Any],
-        max_pages: int,
-        paginated: bool = True,
+        total_limit: Optional[int] = None,
         tag: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], float]:
         """
-        Executes a POST request and, if paginated=True, recursively retrieves all results using the correct pagination method.
+        Executes POST with proper pagination using offset_token.
+        Stops when:
+        1. No more offset_token
+        2. Reached total_limit
+        3. No new items returned
+        4. Duplicate offset_token (infinite loop protection)
         """
         all_items = []
         total_cost = 0.0
         current_task = initial_task.copy()
 
+        # Remove None values
         if "filters" in current_task and (
             current_task["filters"] is None or len(current_task["filters"]) == 0
         ):
             current_task.pop("filters")
 
         page_count = 0
-        previous_offset_token = None  # ADDED: For infinite loop prevention
+        previous_offset_token = None
+        consecutive_empty_pages = 0
+        MAX_EMPTY_PAGES = 3  # Stop after 3 consecutive empty pages
 
         while True:
-            if not paginated and page_count > 0:
-                break
-
-            if page_count >= max_pages:
-                self.logger.info(
-                    f"Reached max page limit ({max_pages}) for endpoint {endpoint}."
-                )
+            # Stop if we've reached our limit
+            if total_limit is not None and len(all_items) >= total_limit:
+                self.logger.info(f"Reached target limit of {total_limit} items.")
                 break
 
             page_count += 1
-            self.logger.info(
-                f"Submitting task to {endpoint} (Page {page_count}/{max_pages})..."
-            )
+            self.logger.info(f"Fetching page {page_count} from {endpoint}...")
 
             request_tag = (
                 tag + f":p{page_count}"
                 if tag
                 else endpoint.split("/")[-1] + f":p{page_count}"
             )
-            response, cost = self._post_request(
+            
+            response, cost = self._post_request_with_retry(
                 endpoint, [current_task], tag=request_tag
             )
             total_cost += cost
@@ -714,73 +777,82 @@ class DataForSEOClientV2:
                 or response.get("tasks_error", 0) > 0
             ):
                 self.logger.error(
-                    f"Paging for endpoint {endpoint} failed on page {page_count}. Response: {response}"
+                    f"Paging failed on page {page_count}. "
+                    f"Status: {response.get('status_code') if response else 'No response'}"
                 )
                 break
 
             tasks = response.get("tasks", [])
             if not tasks or "result" not in tasks[0]:
-                self.logger.info(
-                    f"No 'result' field in the first task for endpoint {endpoint} on page {page_count}. Stopping pagination."
-                )
+                self.logger.info(f"No 'result' in task for page {page_count}. Stopping.")
                 break
 
             task_result = tasks[0].get("result")
             if not task_result:
-                self.logger.info(
-                    f"Task result is empty for endpoint {endpoint} on page {page_count}. Stopping pagination."
-                )
+                self.logger.info(f"Empty result for page {page_count}. Stopping.")
                 break
 
             items_count = 0
             offset_token = None
+            
             if task_result and isinstance(task_result, list) and len(task_result) > 0:
                 offset_token = task_result[0].get("offset_token")
+                
                 for result_item in task_result:
-                    # Capture items from the main list
                     items = result_item.get("items")
                     if items:
                         items_count += len(items)
                         all_items.extend(items)
 
-                    # Capture the valuable seed_keyword_data if it exists (from Keyword Suggestions)
-                    # and if this is specifically from the Keyword Suggestions API.
-                    # This avoids adding the same seed_keyword twice if it was also in the 'items' list
-                    # or if the main search (e.g., Keyword Ideas) already returned it.
+                    # Handle seed keyword data for suggestions
                     if endpoint == self.LABS_KEYWORD_SUGGESTIONS:
                         seed_data = result_item.get("seed_keyword_data")
                         if isinstance(seed_data, dict) and seed_data.get("keyword"):
-                            seed_data["discovery_source"] = (
-                                "keyword_suggestions_seed"  # Mark its source
-                            )
-                            all_items.append(
-                                DataForSEOMapper.sanitize_keyword_data_item(seed_data)
-                            )  # ADDED SANITIZATION
+                            seed_data["discovery_source"] = "keyword_suggestions_seed"
+                            all_items.append(seed_data)
 
-            if not paginated or page_count >= max_pages or items_count == 0:
-                break
-
-            if offset_token:
-                # ADDED: Infinite loop prevention check
-                if offset_token == previous_offset_token:
+            # TRACK EMPTY PAGES:
+            if items_count == 0:
+                consecutive_empty_pages += 1
+                if consecutive_empty_pages >= MAX_EMPTY_PAGES:
                     self.logger.warning(
-                        f"API returned a duplicate offset_token. Halting pagination to prevent infinite loop for endpoint {endpoint}."
+                        f"Received {MAX_EMPTY_PAGES} consecutive empty pages. Stopping pagination."
                     )
                     break
-                previous_offset_token = offset_token  # Update the previous token
-
-                current_task = {
-                    "offset_token": offset_token,
-                    "limit": initial_task.get("limit", 1000),
-                }
-                if "filters" in initial_task and initial_task["filters"] is not None:
-                    current_task["filters"] = initial_task["filters"]
-                if "order_by" in initial_task and initial_task["order_by"] is not None:
-                    current_task["order_by"] = initial_task["order_by"]
-
-                time.sleep(1)
             else:
+                consecutive_empty_pages = 0
+
+            # NO OFFSET TOKEN:
+            if not offset_token:
+                self.logger.info(f"No offset_token on page {page_count}. Pagination complete.")
                 break
+
+            # DUPLICATE TOKEN PROTECTION:
+            if offset_token == previous_offset_token:
+                self.logger.warning(
+                    f"Duplicate offset_token detected. Breaking to prevent infinite loop."
+                )
+                break
+            
+            previous_offset_token = offset_token
+
+            # PREPARE NEXT PAGE:
+            current_task = {
+                "offset_token": offset_token,
+                "limit": initial_task.get("limit", 1000),
+            }
+
+            # Rate limiting between pages
+            time.sleep(0.5)
+
+        # Trim to exact limit if needed
+        if total_limit is not None:
+            all_items = all_items[:total_limit]
+
+        self.logger.info(
+            f"Pagination complete. Fetched {len(all_items)} items across {page_count} pages. "
+            f"Total cost: ${total_cost:.4f}"
+        )
 
         return all_items, total_cost
 
@@ -860,14 +932,9 @@ class DataForSEOClientV2:
 
         api_filters = []
         for i, f in enumerate(filters):
+            # Correctly format the 'in' operator
             if f["operator"] == "in" and isinstance(f["value"], list):
-                # Handle 'in' operator by creating a chain of 'or' conditions
-                in_clauses = []
-                for val in f["value"]:
-                    in_clauses.append([f["field"], "=", val])
-                    if len(in_clauses) < len(f["value"]):
-                        in_clauses.append("or")
-                api_filters.append(in_clauses)
+                api_filters.append([f["field"], "in", f["value"]])
             else:
                 api_filters.append([f["field"], f["operator"], f["value"]])
             
@@ -882,7 +949,7 @@ class DataForSEOClientV2:
         language_code: str,
         client_cfg: Dict[str, Any],
         discovery_modes: List[str],
-        filters: Dict[str, Any],
+        filters: Dict[str, Any],  # ALREADY STRUCTURED
         order_by: Optional[Dict[str, List[str]]],
         limit: Optional[int] = None,
         depth: Optional[int] = None,
@@ -890,14 +957,29 @@ class DataForSEOClientV2:
         include_clickstream_override: Optional[bool] = None,
         closely_variants_override: Optional[bool] = None,
         exact_match_override: Optional[bool] = None,
-        discovery_max_pages: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], float]:
         """
-        Performs a comprehensive discovery burst using Keyword Ideas, Suggestions, and Related Keywords endpoints.
+        Performs comprehensive discovery burst.
         """
         all_items = []
         total_cost = 0.0
-        max_pages = discovery_max_pages or client_cfg.get("discovery_max_pages", 1)
+
+        # SANITIZE FILTERS IMMEDIATELY:
+        from pipeline.step_01_discovery.keyword_discovery.filters import sanitize_filters_for_api
+        
+        sanitized_filters = {}
+        if filters:
+            for mode, mode_filters in filters.items():
+                if mode_filters:
+                    # SANITIZE BEFORE PRIORITY/LIMIT:
+                    clean_filters = sanitize_filters_for_api(mode_filters)
+                    # THEN PRIORITIZE/LIMIT:
+                    limited_filters = self._prioritize_and_limit_filters(clean_filters)
+                    sanitized_filters[mode] = limited_filters
+                else:
+                    sanitized_filters[mode] = None
+        else:
+            sanitized_filters = {"ideas": None, "suggestions": None, "related": None}
 
         # Dynamic parameters (fall back to client_cfg if override is None)
         ignore_synonyms = (
@@ -921,30 +1003,30 @@ class DataForSEOClientV2:
             else client_cfg.get("exact_match", False)
         )
 
+        # The 'limit' parameter is the total number of items to fetch.
+        # The API's 'limit' parameter is the page size. We'll use a large page size for efficiency.
+        page_size = 1000
+
         if "keyword_ideas" in discovery_modes:
             self.logger.info(
                 f"Fetching keyword ideas for {len(seed_keywords)} seeds..."
             )
             ideas_endpoint = self.LABS_KEYWORD_IDEAS
 
-            sanitized_ideas_filters = self._prioritize_and_limit_filters(
-                self._convert_filters_to_api_format(filters.get("ideas"))
-            )
-
             ideas_task = {
                 "keywords": seed_keywords,
                 "location_code": location_code,
                 "language_code": language_code,
-                "limit": int(limit or 100),
+                "limit": page_size,
                 "include_serp_info": True,
                 "ignore_synonyms": ignore_synonyms,
                 "closely_variants": closely_variants,
-                "filters": sanitized_ideas_filters,
+                "filters": sanitized_filters.get("ideas"),
                 "order_by": order_by.get("ideas") if order_by else None,
                 "include_clickstream_data": include_clickstream,
             }
             ideas_items, cost = self.post_with_paging(
-                ideas_endpoint, ideas_task, max_pages=max_pages, tag="discovery_ideas"
+                ideas_endpoint, ideas_task, total_limit=limit, tag="discovery_ideas"
             )
             total_cost += cost
 
@@ -961,21 +1043,19 @@ class DataForSEOClientV2:
                 "keywords": seed_keywords,
                 "location_code": location_code,
                 "language_code": language_code,
-                "limit": int(limit or 100),
+                "limit": page_size,
                 "include_serp_info": True,
                 "exact_match": exact_match,
                 "ignore_synonyms": ignore_synonyms,
                 "include_seed_keyword": True,
-                "filters": self._prioritize_and_limit_filters(
-                    self._convert_filters_to_api_format(filters.get("suggestions"))
-                ),
+                "filters": sanitized_filters.get("suggestions"),
                 "order_by": order_by.get("suggestions") if order_by else None,
                 "include_clickstream_data": include_clickstream,
             }
             suggestions_items, cost = self.post_with_paging(
                 suggestions_endpoint,
                 suggestions_task,
-                max_pages=max_pages,
+                total_limit=limit,
                 tag="discovery_suggestions",
             )
             total_cost += cost
@@ -996,11 +1076,9 @@ class DataForSEOClientV2:
                     "location_code": location_code,
                     "language_code": language_code,
                     "depth": int(depth or client_cfg.get("discovery_related_depth", 3)),
-                    "limit": int(limit or 100),
+                    "limit": page_size,
                     "include_serp_info": True,
-                    "filters": self._prioritize_and_limit_filters(
-                        self._convert_filters_to_api_format(filters.get("related"))
-                    ),
+                    "filters": sanitized_filters.get("related"),
                     "order_by": order_by.get("related") if order_by else None,
                     "include_clickstream_data": include_clickstream,
                     "replace_with_core_keyword": client_cfg.get(
@@ -1011,7 +1089,7 @@ class DataForSEOClientV2:
                 related_items, cost = self.post_with_paging(
                     related_endpoint,
                     related_task,
-                    max_pages=max_pages,
+                    total_limit=limit,
                     tag=f"discovery_related:{seed[:20]}",
                 )
                 total_cost += cost

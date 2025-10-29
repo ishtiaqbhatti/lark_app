@@ -101,6 +101,66 @@ async def get_opportunities_by_cluster_endpoint(
     return opportunities_by_cluster
 
 
+@router.get("/discovery-runs/{run_id}/clustered-keywords", response_model=Dict[str, List[Dict[str, Any]]])
+async def get_clustered_run_keywords(
+    run_id: int,
+    db: DatabaseManager = Depends(get_db),
+    orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
+    opportunities_service: OpportunitiesService = Depends(get_opportunities_service),
+):
+    """
+    Retrieves keywords for a specific discovery run, grouped by their primary category.
+    """
+    run = db.get_discovery_run_by_id(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Discovery run not found.")
+    if run["client_id"] != orchestrator.client_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to access this run's keywords.",
+        )
+
+    try:
+        keywords = db.get_keywords_for_run(run_id)
+        clustered_keywords = opportunities_service.group_by_category(keywords)
+        return clustered_keywords
+    except Exception as e:
+        logger.error(
+            f"Failed to retrieve or cluster keywords for run {run_id}: {e}", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to process keywords: {e}")
+
+
+@router.get("/discovery-runs/{run_id}/grouped-keywords", response_model=Dict[str, List[Dict[str, Any]]])
+async def get_grouped_run_keywords(
+    run_id: int,
+    db: DatabaseManager = Depends(get_db),
+    orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
+    opportunities_service: OpportunitiesService = Depends(get_opportunities_service),
+):
+    """
+    Retrieves keywords for a specific discovery run, grouped by their core_keyword.
+    """
+    run = db.get_discovery_run_by_id(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Discovery run not found.")
+    if run["client_id"] != orchestrator.client_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to access this run's keywords.",
+        )
+
+    try:
+        keywords = db.get_keywords_for_run(run_id)
+        grouped_keywords = opportunities_service.group_by_core_keyword(keywords)
+        return grouped_keywords
+    except Exception as e:
+        logger.error(
+            f"Failed to retrieve or group keywords for run {run_id}: {e}", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to process keywords: {e}")
+
+
 @router.put("/opportunities/{opportunity_id}/status", response_model=Dict[str, str])
 async def update_opportunity_status_endpoint(
     opportunity_id: int, status: str, db: DatabaseManager = Depends(get_db)

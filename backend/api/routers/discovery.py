@@ -1,5 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from data_access.database_manager import DatabaseManager
 from backend.pipeline import WorkflowOrchestrator
 from services.discovery_service import DiscoveryService
@@ -9,9 +10,17 @@ from ..models import (
     DiscoveryRunRequest,
 )  # Ensure DiscoveryRunRequest is imported
 
-# --- NEW IMPORTS AND MODELS FOR FRONTEND FEATURES ---
-from typing import Dict
+from utils.exceptions import (
+    ValidationException,
+    ResourceNotFoundException,
+    DataForSEOAPIException,
+    RateLimitException,
+    BaseAPIException
+)
+from slowapi import Limiter
+from fastapi import Request
 
+limiter = Limiter(key_func=lambda request: request.state.client_id)
 
 # --- END NEW IMPORTS AND MODELS ---
 
@@ -22,37 +31,60 @@ logger = logging.getLogger(__name__)
 @router.get("/discovery/available-filters")
 async def get_available_filters():
     """
-    Returns a curated list of available discovery modes, filters, and sorting options,
-    structured to be easily consumable by the frontend.
+    Returns all available filters for the frontend.
     """
     base_filters = [
         {
             "name": "search_volume",
             "label": "Search Volume",
             "type": "number",
-            "operators": [">", "<", "="],
+            "operators": [">", "<", "=", ">=", "<="],
         },
         {
             "name": "keyword_difficulty",
             "label": "Keyword Difficulty",
             "type": "number",
-            "operators": [">", "<", "="],
+            "operators": [">", "<", "=", ">=", "<="],
         },
         {
             "name": "main_intent",
             "label": "Search Intent",
             "type": "select",
             "options": ["informational", "navigational", "commercial", "transactional"],
-            "operators": ["="],
+            "operators": ["=", "in"],
         },
         {
             "name": "competition_level",
             "label": "Competition Level",
             "type": "select",
             "options": ["LOW", "MEDIUM", "HIGH"],
-            "operators": ["="],
+            "operators": ["=", "in"],
         },
-        {"name": "cpc", "label": "CPC", "type": "number", "operators": [">", "<", "="]},
+        {
+            "name": "cpc",
+            "label": "CPC (Cost Per Click)",
+            "type": "number",
+            "operators": [">", "<", "=", ">=", "<="],
+        },
+        {
+            "name": "competition",
+            "label": "Competition Score",
+            "type": "number",
+            "operators": [">", "<", "=", ">=", "<="],
+        },
+        # ADD THESE:
+        {
+            "name": "backlinks",
+            "label": "Average Backlinks (Top 10)",
+            "type": "number",
+            "operators": [">", "<", "=", ">=", "<="],
+        },
+        {
+            "name": "referring_domains",
+            "label": "Referring Domains (Top 10)",
+            "type": "number",
+            "operators": [">", "<", "=", ">=", "<="],
+        },
     ]
 
     base_sorting = [
@@ -66,18 +98,26 @@ async def get_available_filters():
         new_items = []
         for item in items:
             new_item = item.copy()
-            if "search_volume" in new_item["name"]:
+            base_name = new_item["name"]
+            
+            # MAP TO CORRECT PATHS:
+            if base_name == "search_volume":
                 new_item["name"] = f"{prefix}keyword_info.search_volume"
-            elif "keyword_difficulty" in new_item["name"]:
+            elif base_name == "keyword_difficulty":
                 new_item["name"] = f"{prefix}keyword_properties.keyword_difficulty"
-            elif "main_intent" in new_item["name"]:
+            elif base_name == "main_intent":
                 new_item["name"] = f"{prefix}search_intent_info.main_intent"
-            elif "competition_level" in new_item["name"]:
+            elif base_name == "competition_level":
                 new_item["name"] = f"{prefix}keyword_info.competition_level"
-            elif "cpc" in new_item["name"]:
+            elif base_name == "cpc":
                 new_item["name"] = f"{prefix}keyword_info.cpc"
-            elif "competition" in new_item["name"]:
+            elif base_name == "competition":
                 new_item["name"] = f"{prefix}keyword_info.competition"
+            elif base_name == "backlinks":
+                new_item["name"] = f"{prefix}avg_backlinks_info.backlinks"
+            elif base_name == "referring_domains":
+                new_item["name"] = f"{prefix}avg_backlinks_info.referring_domains"
+            
             new_items.append(new_item)
         return new_items
 
@@ -85,14 +125,20 @@ async def get_available_filters():
         {
             "id": "keyword_ideas",
             "name": "Broad Market Research",
-            "description": "Get a wide range of keyword ideas related to your topic.",
+            "description": "Wide range of keyword ideas related to your topic.",
             "filters": construct_paths("", base_filters),
             "sorting": [{"name": "relevance", "label": "Relevance"}]
             + construct_paths("", base_sorting),
             "defaults": {
                 "filters": [
-                    {"field": "keyword_info.search_volume", "operator": ">", "value": 500},
-                    {"field": "keyword_properties.keyword_difficulty", "operator": "<", "value": 30},
+                    {"field": "keyword_info.search_volume", "operator": ">=", "value": 500},
+                    {"field": "keyword_info.search_volume", "operator": "<=", "value": 50000},
+                    {"field": "keyword_properties.keyword_difficulty", "operator": "<=", "value": 40},
+                    {"field": "keyword_info.competition_level", "operator": "in", "value": ["LOW", "MEDIUM"]},
+                    {"field": "search_intent_info.main_intent", "operator": "=", "value": "informational"},
+                    {"field": "avg_backlinks_info.backlinks", "operator": "<=", "value": 100},
+                    {"field": "avg_backlinks_info.referring_domains", "operator": "<=", "value": 50},
+                    {"field": "keyword_info.cpc", "operator": ">=", "value": 0.30},
                 ],
                 "order_by": ["keyword_info.search_volume,desc"],
             },
@@ -141,72 +187,122 @@ async def get_available_filters():
 
 
 @router.post("/clients/{client_id}/discovery-runs-async", response_model=JobResponse)
+@limiter.limit("10/minute")  # MAX 10 DISCOVERY RUNS PER MINUTE
 async def start_discovery_run_async(
+    request: Request,  # ADD THIS
     client_id: str,
-    request: DiscoveryRunRequest,
+    discovery_request: DiscoveryRunRequest,  # RENAMED TO AVOID CONFLICT
     orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
     discovery_service: DiscoveryService = Depends(get_discovery_service),
 ):
+    request.state.client_id = client_id
     if client_id != orchestrator.client_id:
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have permission to access this client's resources.",
-        )
+        raise ValidationException("Permission denied", field="client_id")
+    
     try:
-        filters = request.filters
-        limit = request.limit or 1000
-        discovery_modes = request.discovery_modes
-        depth = request.depth
+        # SANITIZE INPUTS:
+        seed_keywords = sanitize_keyword_list(discovery_request.seed_keywords)
+        negative_keywords = sanitize_keyword_list(discovery_request.negative_keywords or [])
+        
+        if discovery_request.filters:
+            filters = sanitize_filters(discovery_request.filters)
+            validate_regex_filter(filters)
+        else:
+            filters = None
 
-        if not depth:
-            if limit <= 500:
-                depth = 2
-            elif limit <= 2000:
-                depth = 3
+        if filters and len(filters) > 8:
+            raise ValidationException("Maximum 8 filter conditions allowed. Please reduce filters.", field="filters")
+        
+        # Convert to API format
+        api_filters = convert_frontend_filters_to_api_format(filters)
+
+        # NOW INJECT NEGATIVE KEYWORDS CORRECTLY:
+        if negative_keywords:
+            if api_filters:
+                for neg_kw in negative_keywords:
+                    api_filters.append('and')
+                    api_filters.append(['keyword', 'not_match', neg_kw.strip()])
             else:
-                depth = 4
+                api_filters = []
+                for i, neg_kw in enumerate(negative_keywords):
+                    api_filters.append(['keyword', 'not_match', neg_kw.strip()])
+                    if i < len(negative_keywords) - 1:
+                        api_filters.append('and')
+
+        # VALIDATE DISCOVERY MODES
+        discovery_modes = discovery_request.discovery_modes
+        if not discovery_modes or len(discovery_modes) == 0:
+            raise ValidationException("At least one discovery mode must be selected.", field="discovery_modes")
+        
+        valid_modes = ["keyword_ideas", "keyword_suggestions", "related_keywords"]
+        invalid_modes = [m for m in discovery_modes if m not in valid_modes]
+        if invalid_modes:
+            raise ValidationException(f"Invalid discovery modes: {', '.join(invalid_modes)}. Valid modes are: {', '.join(valid_modes)}", field="discovery_modes")
+
+        # CREATE STRUCTURED FILTERS
+        structured_filters = {
+            "ideas": api_filters.copy() if api_filters else None,
+            "suggestions": api_filters.copy() if api_filters else None,
+            "related": None
+        }
+        
+        if api_filters:
+            related_filters = []
+            for item in api_filters:
+                if isinstance(item, list):
+                    field = item[0]
+                    if not field.startswith('keyword_data.') and field != 'keyword':
+                        field = f'keyword_data.{field}'
+                    related_filters.append([field, item[1], item[2]])
+                else:
+                    related_filters.append(item)
+            structured_filters["related"] = related_filters
+
+        limit = discovery_request.limit or 1000
+        depth = discovery_request.depth
+        if not depth:
+            depth = 3 if limit <= 2000 else 4
 
         parameters = {
-            "seed_keywords": request.seed_keywords,
-            "negative_keywords": request.negative_keywords,
+            "seed_keywords": seed_keywords,
+            "negative_keywords": negative_keywords,
             "discovery_modes": discovery_modes,
-            "filters": filters,
-            "order_by": request.order_by,
-            "filters_override": request.filters_override,
+            "filters": structured_filters,
+            "order_by": discovery_request.order_by,
+            "disqualification_rules_override": discovery_request.disqualification_rules_override,
             "limit": limit,
             "depth": depth,
-            "discovery_max_pages": request.discovery_max_pages,
-            "include_clickstream_data": request.include_clickstream_data,  # NEW
-            "closely_variants": request.closely_variants,  # NEW
-            "ignore_synonyms": request.ignore_synonyms,  # NEW
+            "include_clickstream_data": discovery_request.include_clickstream_data,
+            "closely_variants": discovery_request.closely_variants,
+            "ignore_synonyms": discovery_request.ignore_synonyms,
         }
-        run_id = discovery_service.create_discovery_run(
-            client_id=client_id, parameters=parameters
-        )
-
-        job_id = orchestrator.run_discovery_and_save(
-            run_id,
-            request.seed_keywords,
-            discovery_modes,
-            filters,
-            request.order_by,
-            request.filters_override,
-            limit,
-            depth,
-            request.ignore_synonyms,
-            request.include_clickstream_data,  # NEW
-            request.closely_variants,  # NEW
-            request.negative_keywords,
-            request.discovery_max_pages,
-        )
-        return {"job_id": job_id, "message": f"Discovery run job {job_id} started."}
+        
+        try:
+            run_id = discovery_service.create_discovery_run(client_id=client_id, parameters=parameters)
+            job_id = orchestrator.run_discovery_and_save(
+                run_id,
+                seed_keywords,
+                discovery_modes,
+                structured_filters,
+                discovery_request.order_by,
+                discovery_request.disqualification_rules_override,
+                limit,
+                depth,
+                discovery_request.ignore_synonyms,
+                discovery_request.include_clickstream_data,
+                discovery_request.closely_variants,
+                negative_keywords,
+            )
+            return {"job_id": job_id, "message": f"Discovery run job {job_id} started."}
+        except SQLAlchemyError as db_error:
+            logger.error(f"Database error: {db_error}", exc_info=True)
+            raise BaseAPIException(status_code=500, detail="Database operation failed.", error_code="DATABASE_ERROR")
+    
+    except ValidationException:
+        raise
     except Exception as e:
-        logger.error(
-            f"Failed to start discovery run for client {client_id}: {e}", exc_info=True
-        )
-        raise HTTPException(
-            status_code=500, detail=f"Failed to start discovery run: {e}"
-        )
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        raise BaseAPIException(status_code=500, detail="An unexpected error occurred.", error_code="INTERNAL_SERVER_ERROR")
 
 
 @router.get("/clients/{client_id}/discovery-runs")
@@ -387,3 +483,24 @@ async def get_disqualification_reasons_endpoint(
     logger.info(f"Received request for disqualification reasons for run {run_id}")
     reasons = discovery_service.get_disqualification_reasons(run_id)
     return reasons
+
+
+@router.post("/discovery/pre-check", response_model=Dict[str, List[str]])
+async def pre_check_keywords_endpoint(
+    request: Dict[str, List[str]],
+    db: DatabaseManager = Depends(get_db),
+    orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
+):
+    """
+    Checks a list of seed keywords to see if they already exist in the database for the client.
+    """
+    seed_keywords = request.get("seed_keywords", [])
+    if not seed_keywords:
+        return {"existing_keywords": []}
+
+    try:
+        existing_keywords = db.check_existing_keywords(orchestrator.client_id, seed_keywords)
+        return {"existing_keywords": existing_keywords}
+    except Exception as e:
+        logger.error(f"Failed to pre-check keywords: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to check keywords.")

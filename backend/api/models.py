@@ -32,6 +32,7 @@ class DiscoveryRunRequest(BaseModel):
     depth: Optional[int] = None
     limit: Optional[int] = None
     ignore_synonyms: Optional[bool] = False
+    disqualification_rules_override: Optional[Dict[str, Any]] = None
     # NEW: Parameters for user flexibility
     include_clickstream_data: Optional[bool] = None
     closely_variants: Optional[bool] = None

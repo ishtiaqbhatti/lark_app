@@ -63,3 +63,36 @@ class OpportunitiesService:
                 opportunities_by_cluster[cluster_name].append(opportunity)
 
         return opportunities_by_cluster
+
+    def group_by_category(self, opportunities: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Groups a list of opportunities by their primary category.
+        """
+        opportunities_by_category = {}
+        for opportunity in opportunities:
+            # Safely access categories from the full_data JSON blob
+            categories = opportunity.get("full_data", {}).get("keyword_info", {}).get("categories", [])
+            
+            # Use the first category for grouping, or "Uncategorized"
+            primary_category = categories[0] if categories else "Uncategorized"
+            
+            if primary_category not in opportunities_by_category:
+                opportunities_by_category[primary_category] = []
+            opportunities_by_category[primary_category].append(opportunity)
+        return opportunities_by_category
+
+    def group_by_core_keyword(self, opportunities: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Groups a list of opportunities by their core_keyword.
+        """
+        opportunities_by_core_keyword = {}
+        for opportunity in opportunities:
+            core_keyword = opportunity.get("full_data", {}).get("keyword_properties", {}).get("core_keyword")
+            if not core_keyword:
+                core_keyword = opportunity.get("keyword")
+
+            if core_keyword not in opportunities_by_core_keyword:
+                opportunities_by_core_keyword[core_keyword] = []
+            opportunities_by_core_keyword[core_keyword].append(opportunity)
+            
+        return opportunities_by_core_keyword

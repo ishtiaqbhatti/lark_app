@@ -9,3 +9,4 @@ bleach
 openai
 beautifulsoup4
 markdown
+slowapi==0.1.9
