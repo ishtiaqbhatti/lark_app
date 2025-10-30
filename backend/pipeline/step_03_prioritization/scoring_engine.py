@@ -41,11 +41,17 @@ class ScoringEngine:
             return 0.0, {"error": "Invalid data format."}
 
         breakdown = {}
-        data_source = opportunity.get("full_data", opportunity)
+        # Use full_data if available (contains complete keyword data from discovery)
+        # Otherwise use opportunity itself (for backward compatibility)
+        opportunity_data = opportunity.get("full_data", opportunity)
+        
+        if not isinstance(opportunity_data, dict):
+            self.logger.error("opportunity_data is not a dictionary after extraction")
+            return 0.0, {"error": "Invalid opportunity_data structure."}
 
         # --- Execute all scoring components ---
         ease_score, ease_breakdown = calculate_ease_of_ranking_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["ease_of_ranking"] = {
             "name": "Ease of Ranking",
@@ -54,7 +60,7 @@ class ScoringEngine:
         }
 
         traffic_score, traffic_breakdown = calculate_traffic_potential_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["traffic_potential"] = {
             "name": "Traffic Potential",
@@ -63,7 +69,7 @@ class ScoringEngine:
         }
 
         intent_score, intent_breakdown = calculate_commercial_intent_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["commercial_intent"] = {
             "name": "Commercial Intent",
@@ -72,7 +78,7 @@ class ScoringEngine:
         }
 
         trend_score, trend_breakdown = calculate_growth_trend_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["growth_trend"] = {
             "name": "Growth Trend",
@@ -81,7 +87,7 @@ class ScoringEngine:
         }
 
         features_score, features_breakdown = calculate_serp_features_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["serp_features"] = {
             "name": "SERP Opportunity",
@@ -90,7 +96,7 @@ class ScoringEngine:
         }
 
         volatility_score, volatility_breakdown = calculate_serp_volatility_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["serp_volatility"] = {
             "name": "SERP Volatility",
@@ -99,7 +105,7 @@ class ScoringEngine:
         }
 
         weakness_score, weakness_breakdown = calculate_competitor_weakness_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["competitor_weakness"] = {
             "name": "Competitor Weakness",
@@ -108,7 +114,7 @@ class ScoringEngine:
         }
 
         crowding_score, crowding_breakdown = calculate_serp_crowding_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["serp_crowding"] = {
             "name": "SERP Crowding",
@@ -117,7 +123,7 @@ class ScoringEngine:
         }
 
         structure_score, structure_breakdown = calculate_keyword_structure_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["keyword_structure"] = {
             "name": "Keyword Structure",
@@ -126,7 +132,7 @@ class ScoringEngine:
         }
 
         threat_score, threat_breakdown = calculate_serp_threat_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["serp_threat"] = {
             "name": "SERP Threat",
@@ -135,7 +141,7 @@ class ScoringEngine:
         }
 
         volume_volatility_score, volume_volatility_breakdown = (
-            calculate_volume_volatility_score(data_source, self.config)
+            calculate_volume_volatility_score(opportunity_data, self.config)
         )
         breakdown["volume_volatility"] = {
             "name": "Volume Volatility",
@@ -144,7 +150,7 @@ class ScoringEngine:
         }
 
         freshness_score, freshness_breakdown = calculate_serp_freshness_score(
-            data_source, self.config
+            opportunity_data, self.config
         )
         breakdown["serp_freshness"] = {
             "name": "SERP Freshness",

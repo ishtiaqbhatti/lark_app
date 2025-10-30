@@ -52,6 +52,83 @@ class DataForSEOClientV2:
         self.config = config  # Store the config object
         self.enable_cache = enable_cache
 
+    def _get_friendly_error_message(self, status_code: int, status_message: str) -> str:
+        """
+        Converts DataForSEO API error codes to user-friendly messages.
+        
+        Common error codes:
+        - 40101: Authentication failed
+        - 40102: Not enough credits
+        - 40103: Invalid API endpoint
+        - 40501: Duplicate crawl host (OnPage API)
+        - 50000: Internal server error
+        """
+        error_map = {
+            40101: "Authentication failed. Please check your DataForSEO credentials in settings.",
+            40102: "Insufficient API credits. Please add credits to your DataForSEO account.",
+            40103: "Invalid API endpoint. This may indicate a bug in the integration.",
+            40104: "Invalid parameters sent to API. Check your filter and sorting settings.",
+            40501: "Duplicate crawl host detected. Cannot crawl the same domain multiple times in one request.",
+            50000: "DataForSEO internal server error. Please try again later.",
+            50001: "DataForSEO service temporarily unavailable. Please try again later.",
+        }
+        
+        friendly_message = error_map.get(status_code, status_message)
+        
+        return f"API Error ({status_code}): {friendly_message}"
+
+    def _validate_task_structure(self, task_data: Dict[str, Any], endpoint: str) -> bool:
+        """
+        Validates that a task dictionary has the required structure before sending to API.
+        
+        Per API docs: "you should send all task parameters in the task array"
+        """
+        if not isinstance(task_data, dict):
+            self.logger.error(f"Task data is not a dictionary for {endpoint}: {type(task_data)}")
+            return False
+        
+        # Endpoint-specific required fields
+        required_fields = {
+            self.LABS_KEYWORD_IDEAS: ["keywords", "location_code", "language_code"],
+            self.LABS_KEYWORD_SUGGESTIONS: ["keyword", "location_code", "language_code"],
+            self.LABS_RELATED_KEYWORDS: ["keyword", "location_code", "language_code"],
+            self.SERP_ADVANCED: ["keyword", "location_code", "language_code"],
+            self.ONPAGE_INSTANT_PAGES: ["url"],
+        }
+        
+        required = required_fields.get(endpoint, [])
+        missing = [field for field in required if field not in task_data]
+        
+        if missing:
+            self.logger.error(
+                f"Task for {endpoint} missing required fields: {missing}. Task: {task_data}"
+            )
+            return False
+        
+        return True
+
+    def _validate_utf8_keywords(self, keywords: List[str]) -> List[str]:
+        """
+        Validates and ensures keywords are properly UTF-8 encoded.
+        Per API docs: "UTF-8 encoding"
+        """
+        validated = []
+        for kw in keywords:
+            if not isinstance(kw, str):
+                self.logger.warning(f"Keyword is not a string: {type(kw)}. Skipping.")
+                continue
+            
+            try:
+                # Ensure it can be encoded as UTF-8
+                kw.encode('utf-8')
+                validated.append(kw)
+            except UnicodeEncodeError as e:
+                self.logger.error(
+                    f"Keyword '{kw}' contains invalid UTF-8 characters: {e}. Skipping."
+                )
+        
+        return validated
+
     def _enforce_api_filter_limit(
         self, filters: Optional[List[Any]], max_limit: int = 8
     ) -> Optional[List[Any]]:
@@ -125,6 +202,18 @@ class DataForSEOClientV2:
                 if isinstance(task_item, dict):
                     task_item["tag"] = tag
 
+        # Validate task structure
+        for task in data:
+            if not self._validate_task_structure(task, endpoint):
+                self.logger.error(f"Invalid task structure for {endpoint}. Aborting request.")
+                return {
+                    "status_code": 40000,
+                    "status_message": "Invalid task structure - validation failed",
+                    "tasks": [],
+                    "tasks_error": 1,
+                    "cost": 0.0
+                }, 0.0
+        
         full_url = f"{self.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
         self.logger.info(
             f"Making POST request to {full_url} with data: {json.dumps(data)}"
@@ -149,18 +238,43 @@ class DataForSEOClientV2:
 
                 response_json = response.json()
 
-                # W20 FIX: Check top-level status_code from DataForSEO
-                if response_json.get("status_code") != 20000:
-                    self.logger.error(
-                        f"DataForSEO API returned non-20000 status_code: {response_json.get('status_code')} - {response_json.get('status_message')}"
+                # Apply comprehensive sanitization
+                sanitized_response = DataForSEOMapper.sanitize_complete_api_response(
+                    response_json,
+                    endpoint
+                )
+
+                # Log response summary for debugging
+                if sanitized_response.get("tasks"):
+                    task_count = len(sanitized_response["tasks"])
+                    success_count = sum(1 for t in sanitized_response["tasks"] if t.get("status_code") == 20000)
+                    self.logger.info(
+                        f"API Response: {success_count}/{task_count} tasks successful, "
+                        f"Cost: ${sanitized_response.get('cost', 0.0):.4f}"
                     )
-                    # No retry for auth errors, etc.
-                    if response_json.get("status_code") in [40101, 40102, 40103]:
+                    
+                    # Log any task-level errors
+                    for task in sanitized_response["tasks"]:
+                        if task.get("status_code") != 20000:
+                            self.logger.warning(
+                                f"Task failed: {task.get('status_code')} - {task.get('status_message')}"
+                            )
+
+                # W20 FIX: Check top-level status_code from DataForSEO
+                if sanitized_response.get("status_code") != 20000:
+                    friendly_error = self._get_friendly_error_message(
+                        sanitized_response.get("status_code"),
+                        sanitized_response.get("status_message", "Unknown error")
+                    )
+                    self.logger.error(friendly_error)
+                    
+                    # For auth and credit errors, don't retry
+                    if sanitized_response.get("status_code") in [40101, 40102, 40103]:
                         return None, 0.0
 
                 # W20 FIX: Log critical task-level errors
-                if response_json.get("tasks_error", 0) > 0:
-                    for task in response_json.get("tasks", []):
+                if sanitized_response.get("tasks_error", 0) > 0:
+                    for task in sanitized_response.get("tasks", []):
                         if task.get("status_code") != 20000:
                             # Log specific, known critical errors
                             if task.get("status_code") == 40501:  # Duplicate crawl host
@@ -172,18 +286,18 @@ class DataForSEOClientV2:
                                     f"Task-level error for {task.get('data', {}).get('url', 'N/A')}: {task.get('status_code')} - {task.get('status_message')}"
                                 )
 
-                cost = response_json.get("cost", 0.0)
+                cost = sanitized_response.get("cost", 0.0)
 
                 if self.enable_cache:
-                    self.db_manager.set_api_cache(cache_key, response_json)
+                    self.db_manager.set_api_cache(cache_key, sanitized_response)
 
-                return response_json, cost
+                return sanitized_response, cost
 
             except requests.exceptions.HTTPError as e:
                 # This will now primarily catch 4xx errors
-                if (
-                    response.status_code == 429 and attempt < retries - 1
-                ):  # Specifically handle rate limits
+                status_code = response.status_code if hasattr(locals(), 'response') and response else 500
+                
+                if status_code == 429 and attempt < retries - 1:
                     wait_time = backoff_factor * (2**attempt)
                     self.logger.warning(
                         f"Rate limit exceeded (429). Retrying in {wait_time} seconds... (Attempt {attempt + 1}/{retries})"
@@ -196,9 +310,11 @@ class DataForSEOClientV2:
                         exc_info=True,
                     )
                     failure_response = {
-                        "status_code": response.status_code if 'response' in locals() else 500,
+                        "status_code": status_code,
                         "status_message": f"HTTP error: {e}",
-                        "tasks": [], "tasks_error": 1, "cost": 0.0
+                        "tasks": [], 
+                        "tasks_error": 1, 
+                        "cost": 0.0
                     }
                     if self.enable_cache:
                         self.db_manager.set_api_cache(cache_key, failure_response)
@@ -231,7 +347,12 @@ class DataForSEOClientV2:
         return failure_response, 0.0
 
     def _prioritize_and_limit_filters(self, filters: Optional[List[Any]]) -> List[Any]:
-        """Enforces the 8-filter maximum rule by prioritizing essential filters."""
+        """
+        Enforces the 8-filter maximum rule by prioritizing essential filters.
+        MUST be called AFTER _convert_filters_to_api_format.
+        
+        Per API docs: "you can add several filters at once (8 filters maximum)"
+        """
         if not filters:
             return []
 
@@ -241,67 +362,11 @@ class DataForSEOClientV2:
         # If already within the limit, return as is.
         if condition_count <= 8:
             return filters
-
+        
         self.logger.warning(
-            f"Filter list exceeds 8 conditions ({condition_count} found). Prioritizing essential filters."
+            f"Filter list contains {condition_count} conditions, exceeding API maximum of 8. "
+            "Applying prioritization to reduce to 8 filters."
         )
-
-        # Simple prioritization logic: Keep filters based on field name presence
-        # Prioritized fields (essential for targeting): keyword_difficulty, search_volume, main_intent, competition_level, cpc, competition
-        PRIORITIZED_FIELDS = [
-            "keyword_difficulty",
-            "search_volume",
-            "main_intent",
-            "competition_level",
-            "cpc",
-            "competition",
-        ]
-
-        prioritized_filters = []
-        other_filters = []
-
-        # Iterate through the filters to separate prioritized from others
-        for element in filters:
-            if isinstance(element, list) and len(element) >= 3:
-                # Assuming element[0] is the field name, like "keyword_info.search_volume"
-                field_name = element[0].lower()
-                is_priority = any(
-                    p_field in field_name for p_field in PRIORITIZED_FIELDS
-                )
-
-                if is_priority:
-                    prioritized_filters.append(element)
-                else:
-                    other_filters.append(element)
-            else:
-                # Logical operators ('and', 'or') will be re-added later if needed
-                pass
-
-        # Combine prioritized filters (up to 8 slots)
-        limited_filters_list = []  # Only actual conditions
-
-        # 1. Add prioritized filters first
-        for f in prioritized_filters:
-            if len(limited_filters_list) < 8:
-                limited_filters_list.append(f)
-            else:
-                break
-
-        # 2. Fill remaining slots with non-prioritized filters if space permits
-        for f in other_filters:
-            if len(limited_filters_list) < 8:
-                limited_filters_list.append(f)
-            else:
-                break
-
-        # Reconstruct the filter list with "and" operators
-        final_filters_structure = []
-        for i, filt in enumerate(limited_filters_list):
-            final_filters_structure.append(filt)
-            if i < len(limited_filters_list) - 1:
-                final_filters_structure.append("and")
-
-        return final_filters_structure
 
     def get_technical_onpage_data(
         self, urls: List[str], client_cfg: Dict[str, Any]
@@ -651,14 +716,46 @@ class DataForSEOClientV2:
             endpoint, [base_serp_params], tag=request_tag
         )
 
-        if response and response.get("tasks") and response["tasks"][0].get("result"):
-            result_data = response["tasks"][0]["result"][0]
-            sanitized_result_data = DataForSEOMapper.sanitize_serp_overview_response(
-                result_data
-            )  # ADDED SANITIZATION
-            return sanitized_result_data, cost
-
-        return None, cost
+        # Validate response structure before processing
+        if not response:
+            self.logger.error(f"No response received from SERP API for keyword '{keyword}'")
+            return None, cost
+        
+        if not isinstance(response, dict):
+            self.logger.error(f"SERP API response is not a dictionary: {type(response)}")
+            return None, cost
+        
+        if response.get("status_code") != 20000:
+            self.logger.error(
+                f"SERP API returned error status: {response.get('status_code')} - {response.get('status_message')}"
+            )
+            return None, cost
+        
+        tasks = response.get("tasks")
+        if not tasks or not isinstance(tasks, list) or len(tasks) == 0:
+            self.logger.error("SERP API response contains no tasks")
+            return None, cost
+        
+        first_task = tasks[0]
+        if first_task.get("status_code") != 20000:
+            self.logger.error(
+                f"SERP task failed: {first_task.get('status_code')} - {first_task.get('status_message')}"
+            )
+            return None, cost
+        
+        result = first_.get("result")
+        if not result or not isinstance(result, list) or len(result) == 0:
+            self.logger.error("SERP task contains no result data")
+            return None, cost
+        
+        result_data = result[0]
+        if not isinstance(result_data, dict):
+            self.logger.error(f"SERP result data is not a dictionary: {type(result_data)}")
+            return None, cost
+        
+        # Apply sanitization
+        sanitized_result_data = DataForSEOMapper.sanitize_serp_overview_response(result_data)
+        return sanitized_result_data, cost
 
     def post_with_paging(
         self,
@@ -670,6 +767,12 @@ class DataForSEOClientV2:
     ) -> Tuple[List[Dict[str, Any]], float]:
         """
         Executes a POST request and, if paginated=True, recursively retrieves all results using the correct pagination method.
+        
+        Implements multiple safeguards against infinite loops:
+        1. Max pages limit
+        2. Duplicate offset_token detection
+        3. Total results count tracking
+        4. Zero items detection
         """
         all_items = []
         total_cost = 0.0
@@ -681,7 +784,9 @@ class DataForSEOClientV2:
             current_task.pop("filters")
 
         page_count = 0
-        previous_offset_token = None  # ADDED: For infinite loop prevention
+        previous_offset_token = None
+        consecutive_empty_pages = 0  # NEW: Track empty pages
+        total_results_count = None  # NEW: Track total available results
 
         while True:
             if not paginated and page_count > 0:
@@ -734,30 +839,98 @@ class DataForSEOClientV2:
 
             items_count = 0
             offset_token = None
+            total_count = None
+            current_offset = 0
+            
             if task_result and isinstance(task_result, list) and len(task_result) > 0:
-                offset_token = task_result[0].get("offset_token")
+                first_result = task_result[0]
+                offset_token = first_result.get("offset_token")
+                total_count = first_result.get("total_count")
+                current_offset = first_result.get("offset", 0)
+                
                 for result_item in task_result:
-                    # Capture items from the main list
-                    items = result_item.get("items")
-                    if items:
-                        items_count += len(items)
-                        all_items.extend(items)
-
-                    # Capture the valuable seed_keyword_data if it exists (from Keyword Suggestions)
-                    # and if this is specifically from the Keyword Suggestions API.
-                    # This avoids adding the same seed_keyword twice if it was also in the 'items' list
-                    # or if the main search (e.g., Keyword Ideas) already returned it.
-                    if endpoint == self.LABS_KEYWORD_SUGGESTIONS:
+                    # Handle different response structures per endpoint (from Task 2.1)
+                    if endpoint == self.LABS_RELATED_KEYWORDS:
+                        # [Related Keywords extraction logic from Task 2.1]
+                        items = result_item.get("items", [])
+                        for item in items:
+                            keyword_data = item.get("keyword_data")
+                            if keyword_data:
+                                keyword_data["depth"] = item.get("depth", 0)
+                                keyword_data["related_keywords"] = item.get("related_keywords", [])
+                                keyword_data["discovery_source"] = "related_keywords"
+                                all_items.append(DataForSEOMapper.sanitize_keyword_data_item(keyword_data))
+                                items_count += 1
+                        
+                        seed_keyword_data = result_item.get("seed_keyword_data")
+                        if isinstance(seed_keyword_data, list):
+                            for seed_item in seed_keyword_data:
+                                if isinstance(seed_item, dict) and seed_item.get("keyword"):
+                                    seed_item["discovery_source"] = "related_keywords_seed"
+                                    all_items.append(DataForSEOMapper.sanitize_keyword_data_item(seed_item))
+                        elif isinstance(seed_keyword_data, dict) and seed_keyword_data.get("keyword"):
+                            seed_keyword_data["discovery_source"] = "related_keywords_seed"
+                            all_items.append(DataForSEOMapper.sanitize_keyword_data_item(seed_keyword_data))
+                    
+                    elif endpoint == self.LABS_KEYWORD_SUGGESTIONS:
+                        items = result_item.get("items", [])
+                        if items:
+                            items_count += len(items)
+                            for item in items:
+                                item["discovery_source"] = "keyword_suggestions"
+                                all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
+                        
                         seed_data = result_item.get("seed_keyword_data")
                         if isinstance(seed_data, dict) and seed_data.get("keyword"):
-                            seed_data["discovery_source"] = (
-                                "keyword_suggestions_seed"  # Mark its source
-                            )
-                            all_items.append(
-                                DataForSEOMapper.sanitize_keyword_data_item(seed_data)
-                            )  # ADDED SANITIZATION
+                            seed_data["discovery_source"] = "keyword_suggestions_seed"
+                            all_items.append(DataForSEOMapper.sanitize_keyword_data_item(seed_data))
+                    
+                    else:
+                        # Keyword Ideas and other endpoints
+                        items = result_item.get("items", [])
+                        if items:
+                            items_count += len(items)
+                            for item in items:
+                                if not item.get("discovery_source"):
+                                    item["discovery_source"] = "keyword_ideas"
+                                all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
 
-            if not paginated or page_count >= max_pages or items_count == 0:
+            # Multiple safeguards against infinite loops
+            
+            # 1. Check pagination mode
+            if not paginated or page_count >= max_pages:
+                self.logger.info(f"Stopping pagination: paginated={paginated}, page_count={page_count}, max_pages={max_pages}")
+                break
+            
+            # 2. Check if we've retrieved all available results using total_count
+            if total_count is not None:
+                if len(all_items) >= total_count:
+                    self.logger.info(
+                        f"Retrieved all {total_count} available results for {endpoint}. Stopping pagination."
+                    )
+                    break
+                
+                # Also check if we're within 10% of total (API might have inconsistent counts)
+                if len(all_items) >= total_count * 0.95:
+                    self.logger.info(
+                        f"Retrieved {len(all_items)}/{total_count} results (95%+). Stopping pagination."
+                    )
+                    break
+            
+            # 3. Check for empty pages
+            if items_count == 0:
+                consecutive_empty_pages += 1
+                if consecutive_empty_pages >= 2:
+                    self.logger.warning(
+                        f"Received {consecutive_empty_pages} consecutive empty pages for {endpoint}. Stopping pagination."
+                    )
+                    break
+            else:
+                consecutive_empty_pages = 0  # Reset counter
+            
+            # 4. Validate offset_token exists for next page
+            if not offset_token:
+                self.logger.info(f"No offset_token in response for {endpoint}. End of results.")
                 break
 
             if offset_token:
@@ -769,14 +942,12 @@ class DataForSEOClientV2:
                     break
                 previous_offset_token = offset_token  # Update the previous token
 
+                # PER API DOCS: When offset_token is specified, all other params except limit are ignored
                 current_task = {
                     "offset_token": offset_token,
                     "limit": initial_task.get("limit", 1000),
                 }
-                if "filters" in initial_task and initial_task["filters"] is not None:
-                    current_task["filters"] = initial_task["filters"]
-                if "order_by" in initial_task and initial_task["order_by"] is not None:
-                    current_task["order_by"] = initial_task["order_by"]
+                # DO NOT include filters or order_by - they are ignored by the API
 
                 time.sleep(1)
             else:
@@ -855,25 +1026,132 @@ class DataForSEOClientV2:
     def _convert_filters_to_api_format(
         self, filters: Optional[List[Dict[str, Any]]]
     ) -> Optional[List[Any]]:
+        """
+        Converts frontend filter format to DataForSEO API format.
+        
+        Frontend format: [{"field": "keyword_info.search_volume", "operator": ">", "value": 100}, ...]
+        API format: [["keyword_info.search_volume", ">", 100], "and", ...]
+        
+        Per API docs: 'in' operator should be sent as-is with array value, not expanded.
+        """
         if not filters:
             return None
 
         api_filters = []
         for i, f in enumerate(filters):
-            if f["operator"] == "in" and isinstance(f["value"], list):
-                # Handle 'in' operator by creating a chain of 'or' conditions
-                in_clauses = []
-                for val in f["value"]:
-                    in_clauses.append([f["field"], "=", val])
-                    if len(in_clauses) < len(f["value"]):
-                        in_clauses.append("or")
-                api_filters.append(in_clauses)
-            else:
-                api_filters.append([f["field"], f["operator"], f["value"]])
+            if not isinstance(f, dict):
+                self.logger.warning(f"Invalid filter format (not a dict): {f}")
+                continue
+            
+            if not all(k in f for k in ["field", "operator", "value"]):
+                self.logger.warning(f"Filter missing required keys: {f}")
+                continue
+            
+            # Validate operator is compatible with field type
+            if not self._validate_filter_operator(f["field"], f["operator"], f["value"]):
+                self.logger.warning(f"Skipping invalid filter: {f}")
+                continue
+            
+            # Per API docs: 'in' and 'not_in' operators work with array values directly
+            # DO NOT expand into multiple 'or' conditions
+            api_filters.append([f["field"], f["operator"], f["value"]])
             
             if i < len(filters) - 1:
                 api_filters.append("and")
-        return api_filters
+        
+        return api_filters if api_filters else None
+
+    def _validate_and_limit_order_by(
+        self, order_by: Optional[List[str]], endpoint_name: str = "API"
+    ) -> Optional[List[str]]:
+        """
+        Validates and enforces the API limit of max 3 sorting rules.
+        
+        Per DataForSEO docs: "you can set no more than three sorting rules in a single request"
+        """
+        if not order_by:
+            return None
+        
+        if not isinstance(order_by, list):
+            self.logger.warning(f"order_by is not a list: {type(order_by)}. Ignoring.")
+            return None
+        
+        if len(order_by) > 3:
+            self.logger.warning(
+                f"{endpoint_name}: order_by contains {len(order_by)} rules, but API max is 3. "
+                "Truncating to first 3 rules."
+            )
+            return order_by[:3]
+        
+        return order_by
+
+    def _validate_filter_operator(self, field: str, operator: str, value: Any) -> bool:
+        """
+        Validates that the operator is compatible with the field type.
+        
+        Per API docs:
+        - bool: only =, <>
+        - num: <, <=, >, >=, =, <>, in, not_in
+        - str: match, not_match, like, not_like, ilike, not_ilike, in, not_in, =, <>, regex, not_regex
+        - array.str: has, has_not
+        - array.num: has, has_not
+        - time: <, >
+        """
+        # Mapping of field patterns to their types based on API documentation
+        field_type_map = {
+            "competition": "num",
+            "competition_level": "str",
+            "cpc": "num",
+            "search_volume": "num",
+            "keyword_difficulty": "num",
+            "main_intent": "str",
+            "foreign_intent": "array.str",
+            "serp_item_types": "array.str",
+            "categories": "array.num",
+            "is_another_language": "bool",
+            "is_normalized": "bool",
+            "_time": "time",  # Any field ending in _time
+            "year": "num",
+            "month": "num",
+            "backlinks": "num",
+            "dofollow": "num",
+            "rank": "num",
+            "depth": "num",
+        }
+        
+        # Determine field type
+        field_type = None
+        field_lower = field.lower()
+        for pattern, ftype in field_type_map.items():
+            if pattern in field_lower:
+                field_type = ftype
+                break
+        
+        if field_type is None:
+            # Default to string if unknown
+            field_type = "str"
+        
+        # Valid operators per type
+        valid_operators = {
+            "bool": {"=", "<>"},
+            "num": {"<", "<=", ">", ">=", "=", "<>", "in", "not_in"},
+            "str": {"match", "not_match", "like", "not_like", "ilike", "not_ilike", 
+                   "in", "not_in", "=", "<>", "regex", "not_regex"},
+            "array.str": {"has", "has_not"},
+            "array.num": {"has", "has_not"},
+            "time": {"<", ">"},
+        }
+        
+        allowed = valid_operators.get(field_type, valid_operators["str"])
+        
+        if operator not in allowed:
+            self.logger.warning(
+                f"Invalid operator '{operator}' for field '{field}' (type: {field_type}). "
+                f"Allowed operators: {allowed}"
+            )
+            return False
+        
+        return True
 
     def get_keyword_ideas(
         self,
@@ -893,8 +1171,71 @@ class DataForSEOClientV2:
         discovery_max_pages: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], float]:
         """
-        Performs a comprehensive discovery burst using Keyword Ideas, Suggestions, and Related Keywords endpoints.
+        Performs comprehensive keyword discovery using DataForSEO Labs API endpoints.
+        
+        Supports three discovery modes:
+        1. Keyword Ideas: Category-based relevance search (max 200 seeds)
+        2. Keyword Suggestions: Full-text search with additional words (per seed)
+        3. Related Keywords: Depth-first search from "related searches" (per seed, depth 0-4)
+        
+        Args:
+            seed_keywords: List of seed keywords (max 200 for Ideas, unlimited for others)
+            location_code: DataForSEO location code (required)
+            language_code: DataForSEO language code (required)
+            client_cfg: Client configuration dictionary
+            discovery_modes: List of modes to execute ["keyword_ideas", "keyword_suggestions", "related_keywords"]
+            filters: Dict of filters per mode {"ideas": [...], "suggestions": [...], "related": [...]}
+            order_by: Dict of sorting rules per mode (max 3 rules per mode)
+            limit: Max results per endpoint (Ideas: default 700/max 1000, Others: default 100/max 1000)
+            depth: Search depth for Related Keywords only (0-4, default 1)
+            ignore_synonyms_override: Override for ignore_synonyms parameter
+            include_clickstream_override: Override for include_clickstream_data (DOUBLES COST)
+            closely_variants_override: Override for closely_variants (Ideas only)
+            exact_match_override: Override for exact_match (Suggestions only)
+            discovery_max_pages: Max pagination pages (default from config)
+        
+        Returns:
+            Tuple of (list of keyword data dictionaries, total API cost in USD)
+        
+        Raises:
+            ValueError: If required parameters are missing or invalid
+        
+        API Documentation:
+            - Keyword Ideas: https://docs.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live
+            - Keyword Suggestions: https://docs.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live
+            - Related Keywords: https://docs.dataforseo.com/v3/dataforseo_labs/google/related_keywords/live
         """
+        # Validate required parameters per API documentation
+        if not location_code:
+            raise ValueError(
+                "location_code is required for DataForSEO Labs API calls. "
+                "Either location_code or location_name must be specified."
+            )
+        
+        if not language_code:
+            raise ValueError(
+                "language_code is required for DataForSEO Labs API calls. "
+                "Either language_code or language_name must be specified."
+            )
+        
+        # Validate seed_keywords array per API docs (max 200 for Keyword Ideas)
+        if not seed_keywords or len(seed_keywords) == 0:
+            self.logger.warning("No seed keywords provided for discovery.")
+            return [], 0.0
+        
+        if len(seed_keywords) > 200:
+            self.logger.warning(
+                f"Seed keywords array exceeds API maximum of 200 keywords ({len(seed_keywords)} provided). "
+                "Truncating to first 200 keywords."
+            )
+            seed_keywords = seed_keywords[:200]
+        
+        # Validate UTF-8 encoding per API requirements
+        seed_keywords = self._validate_utf8_keywords(seed_keywords)
+        if not seed_keywords:
+            self.logger.error("No valid UTF-8 keywords after validation.")
+            return [], 0.0
+        
         all_items = []
         total_cost = 0.0
         max_pages = discovery_max_pages or client_cfg.get("discovery_max_pages", 1)
@@ -927,20 +1268,30 @@ class DataForSEOClientV2:
             )
             ideas_endpoint = self.LABS_KEYWORD_IDEAS
 
-            sanitized_ideas_filters = self._prioritize_and_limit_filters(
-                self._convert_filters_to_api_format(filters.get("ideas"))
-            )
+            # CRITICAL: Must convert to API format FIRST, then enforce limit
+            # because conversion can expand filters (e.g., 'in' operator)
+            converted_ideas_filters = self._convert_filters_to_api_format(filters.get("ideas"))
+            sanitized_ideas_filters = self._prioritize_and_limit_filters(converted_ideas_filters)
+
+            # Validate and set default limit per API docs (default: 700, max: 1000)
+            ideas_limit = int(limit or 700)
+            if ideas_limit > 1000:
+                self.logger.warning(f"Keyword Ideas limit {ideas_limit} exceeds max of 1000. Setting to 1000.")
+                ideas_limit = 1000
 
             ideas_task = {
                 "keywords": seed_keywords,
                 "location_code": location_code,
                 "language_code": language_code,
-                "limit": int(limit or 100),
+                "limit": ideas_limit,
                 "include_serp_info": True,
                 "ignore_synonyms": ignore_synonyms,
-                "closely_variants": closely_variants,
+                "closely_variants": closely_variants,  # Top-level param, correct
                 "filters": sanitized_ideas_filters,
-                "order_by": order_by.get("ideas") if order_by else None,
+                "order_by": self._validate_and_limit_order_by(
+                    order_by.get("ideas") if order_by else ["relevance,desc"],
+                    "Keyword Ideas"
+                ),  # Use API default
                 "include_clickstream_data": include_clickstream,
             }
             ideas_items, cost = self.post_with_paging(
@@ -957,55 +1308,92 @@ class DataForSEOClientV2:
         if "keyword_suggestions" in discovery_modes:
             self.logger.info("Fetching keyword suggestions...")
             suggestions_endpoint = self.LABS_KEYWORD_SUGGESTIONS
-            suggestions_task = {
-                "keywords": seed_keywords,
-                "location_code": location_code,
-                "language_code": language_code,
-                "limit": int(limit or 100),
-                "include_serp_info": True,
-                "exact_match": exact_match,
-                "ignore_synonyms": ignore_synonyms,
-                "include_seed_keyword": True,
-                "filters": self._prioritize_and_limit_filters(
+            
+            all_suggestions_items = []
+            
+            # Process each seed keyword separately (Suggestions API takes single keyword)
+            for seed in seed_keywords:
+                sanitized_suggestions_filters = self._prioritize_and_limit_filters(
                     self._convert_filters_to_api_format(filters.get("suggestions"))
-                ),
-                "order_by": order_by.get("suggestions") if order_by else None,
-                "include_clickstream_data": include_clickstream,
-            }
-            suggestions_items, cost = self.post_with_paging(
-                suggestions_endpoint,
-                suggestions_task,
-                max_pages=max_pages,
-                tag="discovery_suggestions",
-            )
-            total_cost += cost
-            for item in suggestions_items:
-                item["discovery_source"] = "keyword_suggestions"
-                item["depth"] = 0
-                all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
+                )
+                
+                # Validate and set default limit per API docs (default: 100, max: 1000)
+                suggestions_limit = int(limit or 100)
+                if suggestions_limit > 1000:
+                    self.logger.warning(f"Keyword Suggestions limit {suggestions_limit} exceeds max of 1000. Setting to 1000.")
+                    suggestions_limit = 1000
+                
+                suggestions_task = {
+                    "keyword": seed,  # Singular keyword, not array
+                    "location_code": location_code,
+                    "language_code": language_code,
+                    "limit": suggestions_limit,
+                    "include_serp_info": True,
+                    "exact_match": exact_match,
+                    "ignore_synonyms": ignore_synonyms,
+                    "include_seed_keyword": True,
+                    "filters": sanitized_suggestions_filters,
+                    "order_by": self._validate_and_limit_order_by(
+                        order_by.get("suggestions") if order_by else ["keyword_info.search_volume,desc"],
+                        "Keyword Suggestions"
+                    ),
+                    "include_clickstream_data": include_clickstream,
+                }
+                
+                suggestions_items, cost = self.post_with_paging(
+                    suggestions_endpoint,
+                    suggestions_task,
+                    max_pages=max_pages,
+                    tag=f"discovery_suggestions:{seed[:20]}",
+                )
+                total_cost += cost
+                all_suggestions_items.extend(suggestions_items)
+            
             self.logger.info(
-                f"Found {len(suggestions_items)} suggestions."
+                f"Found {len(all_suggestions_items)} total suggestions from {len(seed_keywords)} seeds."
             )
+            all_items.extend(all_suggestions_items)
 
         if "related_keywords" in discovery_modes:
             self.logger.info("Fetching related keywords...")
             related_endpoint = self.LABS_RELATED_KEYWORDS
             for seed in seed_keywords:
+                sanitized_related_filters = self._prioritize_and_limit_filters(
+                    self._convert_filters_to_api_format(filters.get("related"))
+                )
+                
+                # Validate depth parameter per API docs (0-4 range)
+                related_depth = int(depth or client_cfg.get("discovery_related_depth", 1))
+                if related_depth < 0 or related_depth > 4:
+                    self.logger.warning(
+                        f"Related keywords depth {related_depth} is out of valid range [0-4]. Setting to 1."
+                    )
+                    related_depth = 1
+                
+                # Validate and set default limit per API docs (default: 100, max: 1000)
+                related_limit = int(limit or 100)
+                if related_limit > 1000:
+                    self.logger.warning(f"Related Keywords limit {related_limit} exceeds max of 1000. Setting to 1000.")
+                    related_limit = 1000
+                
                 related_task = {
                     "keyword": seed,
                     "location_code": location_code,
                     "language_code": language_code,
-                    "depth": int(depth or client_cfg.get("discovery_related_depth", 3)),
-                    "limit": int(limit or 100),
+                    "depth": related_depth,
+                    "limit": related_limit,
                     "include_serp_info": True,
-                    "filters": self._prioritize_and_limit_filters(
-                        self._convert_filters_to_api_format(filters.get("related"))
+                    "include_seed_keyword": True,  # Added to get seed data
+                    "filters": sanitized_related_filters,
+                    "order_by": self._validate_and_limit_order_by(
+                        order_by.get("related") if order_by else ["keyword_data.keyword_info.search_volume,desc"],
+                        "Related Keywords"
                     ),
-                    "order_by": order_by.get("related") if order_by else None,
                     "include_clickstream_data": include_clickstream,
                     "replace_with_core_keyword": client_cfg.get(
                         "discovery_replace_with_core_keyword", False
                     ),
+                    "ignore_synonyms": ignore_synonyms,
                 }
 
                 related_items, cost = self.post_with_paging(

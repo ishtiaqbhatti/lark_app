@@ -7,6 +7,21 @@ import json
 
 logger = logging.getLogger(__name__)
 
+# Exhaustive list of valid SERP item types per DataForSEO API documentation
+VALID_SERP_ITEM_TYPES = {
+    "answer_box", "app", "carousel", "multi_carousel", "featured_snippet",
+    "google_flights", "google_reviews", "third_party_reviews", "google_posts",
+    "images", "jobs", "knowledge_graph", "local_pack", "hotels_pack", "map",
+    "organic", "paid", "people_also_ask", "related_searches", "people_also_search",
+    "shopping", "top_stories", "twitter", "video", "events", "mention_carousel",
+    "recipes", "top_sights", "scholarly_articles", "popular_products", "podcasts",
+    "questions_and_answers", "find_results_on", "stocks_box", "visual_stories",
+    "commercial_units", "local_services", "google_hotels", "math_solver",
+    "currency_box", "product_considerations", "found_on_web", "short_videos",
+    "refine_products", "explore_brands", "perspectives", "discussions_and_forums",
+    "compare_sites", "courses", "ai_overview"
+}
+
 
 class DataForSEOMapper:
     """
@@ -16,16 +31,46 @@ class DataForSEOMapper:
     """
 
     @staticmethod
+    def _safe_convert_to_int(value: Any, default: int = 0) -> int:
+        """Safely converts a value to integer, returning default on failure."""
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert value to int: {value} (type: {type(value)})")
+            return default
+    
+    @staticmethod
+    def _safe_convert_to_float(value: Any, default: float = 0.0) -> float:
+        """Safely converts a value to float, returning default on failure."""
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert value to float: {value} (type: {type(value)})")
+            return default
+
+    @staticmethod
     def _sanitize_serp_info(serp_info: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitizes the 'serp_info' object, specifically handling 'se_results_count' and datetimes."""
-        if isinstance(serp_info.get("se_results_count"), str):
+        if not isinstance(serp_info, dict):
+            logger.warning(f"serp_info is not a dict: {type(serp_info)}")
+            return {}
+        
+        # se_results_count can be string (Keyword Ideas/Suggestions) or int (Related Keywords)
+        se_results_count = serp_info.get("se_results_count")
+        if se_results_count is not None:
             try:
-                serp_info["se_results_count"] = int(serp_info["se_results_count"])
+                serp_info["se_results_count"] = int(se_results_count)
             except (ValueError, TypeError):
                 logger.warning(
-                    f"Failed to convert 'se_results_count' (was string) to int. Setting to 0. Raw: {serp_info.get('se_results_count')}"
+                    f"Failed to convert 'se_results_count' to int. Setting to 0. Raw: {se_results_count}, Type: {type(se_results_count)}"
                 )
                 serp_info["se_results_count"] = 0
+        else:
+            serp_info["se_results_count"] = 0
 
         # Sanitize datetime fields
         serp_info["last_updated_time"] = parse_datetime_string(
@@ -53,23 +98,23 @@ class DataForSEOMapper:
 
         # Sanitize keyword_info
         if isinstance(sanitized_item.get("keyword_info"), dict):
-            # Ensure CPC and Competition are floats, defaulting to 0.0 if missing or None
-            sanitized_item["keyword_info"]["cpc"] = float(
-                sanitized_item["keyword_info"].get("cpc") or 0.0
+            # Ensure CPC and Competition are floats using safe conversion
+            sanitized_item["keyword_info"]["cpc"] = DataForSEOMapper._safe_convert_to_float(
+                sanitized_item["keyword_info"].get("cpc"), 0.0
             )
-            sanitized_item["keyword_info"]["competition"] = float(
-                sanitized_item["keyword_info"].get("competition") or 0.0
+            sanitized_item["keyword_info"]["competition"] = DataForSEOMapper._safe_convert_to_float(
+                sanitized_item["keyword_info"].get("competition"), 0.0
             )
 
             # Ensure other numeric fields are handled
-            sanitized_item["keyword_info"]["search_volume"] = int(
-                sanitized_item["keyword_info"].get("search_volume") or 0
+            sanitized_item["keyword_info"]["search_volume"] = DataForSEOMapper._safe_convert_to_int(
+                sanitized_item["keyword_info"].get("search_volume"), 0
             )
-            sanitized_item["keyword_info"]["low_top_of_page_bid"] = float(
-                sanitized_item["keyword_info"].get("low_top_of_page_bid") or 0.0
+            sanitized_item["keyword_info"]["low_top_of_page_bid"] = DataForSEOMapper._safe_convert_to_float(
+                sanitized_item["keyword_info"].get("low_top_of_page_bid"), 0.0
             )
-            sanitized_item["keyword_info"]["high_top_of_page_bid"] = float(
-                sanitized_item["keyword_info"].get("high_top_of_page_bid") or 0.0
+            sanitized_item["keyword_info"]["high_top_of_page_bid"] = DataForSEOMapper._safe_convert_to_float(
+                sanitized_item["keyword_info"].get("high_top_of_page_bid"), 0.0
             )
 
             # Sanitize last_updated_time
@@ -99,6 +144,13 @@ class DataForSEOMapper:
                             month_data.get("search_volume") or 0
                         )
 
+            # Sanitize search_volume_trend - per API docs, these are integers (percentage changes)
+            if isinstance(sanitized_item["keyword_info"].get("search_volume_trend"), dict):
+                trend = sanitized_item["keyword_info"]["search_volume_trend"]
+                trend["monthly"] = int(trend.get("monthly") or 0)
+                trend["quarterly"] = int(trend.get("quarterly") or 0)
+                trend["yearly"] = int(trend.get("yearly") or 0)
+
         # Sanitize keyword_properties
         if isinstance(sanitized_item.get("keyword_properties"), dict):
             sanitized_item["keyword_properties"]["keyword_difficulty"] = int(
@@ -121,9 +173,9 @@ class DataForSEOMapper:
             sanitized_item["serp_info"] = DataForSEOMapper._sanitize_serp_info(
                 sanitized_item["serp_info"]
             )
-            sanitized_item["serp_info"]["serp_item_types"] = (
-                sanitized_item["serp_info"].get("serp_item_types") or []
-            )
+            # Validate SERP item types against official list
+            raw_serp_types = sanitized_item["serp_info"].get("serp_item_types") or []
+            sanitized_item["serp_info"]["serp_item_types"] = DataForSEOMapper.validate_serp_item_types(raw_serp_types)
 
         # Sanitize avg_backlinks_info
         if isinstance(sanitized_item.get("avg_backlinks_info"), dict):
@@ -168,6 +220,36 @@ class DataForSEOMapper:
                             )
 
         return sanitized_item
+
+    @staticmethod
+    def validate_serp_item_types(serp_item_types: List[str]) -> List[str]:
+        """
+        Validates SERP item types against the official API list.
+        Returns only valid types and logs warnings for unknown types.
+        """
+        if not isinstance(serp_item_types, list):
+            logger.warning(f"serp_item_types is not a list: {type(serp_item_types)}")
+            return []
+        
+        validated = []
+        invalid_types = []
+        
+        for item_type in serp_item_types:
+            if not isinstance(item_type, str):
+                logger.warning(f"SERP item type is not a string: {type(item_type)}")
+                continue
+            
+            if item_type in VALID_SERP_ITEM_TYPES:
+                validated.append(item_type)
+            else:
+                invalid_types.append(item_type)
+        
+        if invalid_types:
+            logger.warning(
+                f"Unknown SERP item types detected (API may have been updated): {invalid_types}"
+            )
+        
+        return validated
 
     @staticmethod
     def sanitize_serp_overview_response(serp_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -402,3 +484,88 @@ class DataForSEOMapper:
             )
 
         return sanitized_item
+
+
+    @staticmethod
+    def sanitize_complete_api_response(
+        response: Dict[str, Any],
+        endpoint: str
+    ) -> Dict[str, Any]:
+        """
+        Master sanitization method that validates and cleans an entire API response.
+        
+        Args:
+            response: Raw response from DataForSEO API
+            endpoint: The endpoint that was called (for context-specific sanitization)
+        
+        Returns:
+            Fully sanitized response ready for processing
+        """
+        if not isinstance(response, dict):
+            logger.error(f"API response is not a dictionary: {type(response)}")
+            return {
+                "status_code": 50000,
+                "status_message": "Invalid response format",
+                "tasks": [],
+                "tasks_error": 1,
+                "cost": 0.0
+            }
+        
+        sanitized = response.copy()
+        
+        # Validate top-level response structure
+        if "status_code" not in sanitized:
+            logger.error("API response missing status_code field")
+            sanitized["status_code"] = 50000
+        
+        if "tasks" not in sanitized or not isinstance(sanitized["tasks"], list):
+            logger.error("API response missing or invalid 'tasks' array")
+            sanitized["tasks"] = []
+            sanitized["tasks_error"] = 1
+            return sanitized
+        
+        # Sanitize each task
+        for task_idx, task in enumerate(sanitized["tasks"]):
+            if not isinstance(task, dict):
+                logger.warning(f"Task {task_idx} is not a dictionary: {type(task)}")
+                continue
+            
+            # Ensure task has required fields
+            if "status_code" not in task:
+                task["status_code"] = 50000
+            
+            if "result" not in task or not isinstance(task["result"], list):
+                logger.warning(f"Task {task_idx} missing or invalid 'result' array")
+                task["result"] = []
+                continue
+            
+            # Sanitize result items based on endpoint type
+            for result_idx, result_item in enumerate(task["result"]):
+                if not isinstance(result_item, dict):
+                    logger.warning(f"Result item {result_idx} in task {task_idx} is not a dictionary")
+                    continue
+                
+                # Apply endpoint-specific sanitization
+                if "keyword_ideas" in endpoint or "keyword_suggestions" in endpoint:
+                    # Sanitize items array
+                    if "items" in result_item and isinstance(result_item["items"], list):
+                        result_item["items"] = [
+                            DataForSEOMapper.sanitize_keyword_data_item(item)
+                            for item in result_item["items"]
+                            if isinstance(item, dict)
+                        ]
+                
+                elif "related_keywords" in endpoint:
+                    # Sanitize keyword_data objects
+                    if "items" in result_item and isinstance(result_item["items"], list):
+                        sanitized_items = []
+                        for item in result_item["items"]:
+                            if isinstance(item, dict) and "keyword_data" in item:
+                                keyword_data = item["keyword_data"]
+                                if isinstance(keyword_data, dict):
+                                    sanitized_kw_data = DataForSEOMapper.sanitize_keyword_data_item(keyword_data)
+                                    item["keyword_data"] = sanitized_kw_data
+                                    sanitized_items.append(item)
+                        result_item["items"] = sanitized_items
+        
+        return sanitized

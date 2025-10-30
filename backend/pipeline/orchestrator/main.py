@@ -28,6 +28,8 @@ from .validation_orchestrator import ValidationOrchestrator
 from .workflow_orchestrator import WorkflowOrchestrator
 from .cost_estimator import CostEstimator
 
+from backend.core.cost_tracker import CostTracker
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,3 +89,4 @@ class WorkflowOrchestrator(
         self.content_auditor = ContentAuditor()
         self.prompt_assembler = DynamicPromptAssembler(self.db_manager)
         self.serp_analysis_service = SerpAnalysisService(self.dataforseo_client, self.client_cfg)
+        self.cost_tracker = CostTracker()

@@ -31,10 +31,10 @@ class ImageGenerator:
         if not self.config.get("overlay_text_enabled", False):
             return image_path  # If disabled, return original path
 
+        image = None
+        overlay = None
         try:
-            image = Image.open(image_path).convert(
-                "RGBA"
-            )  # Convert to RGBA for alpha channel in overlay background
+            image = Image.open(image_path).convert("RGBA")
             draw = ImageDraw.Draw(image)
 
             text_color = ImageColor.getrgb(
@@ -128,11 +128,25 @@ class ImageGenerator:
 
             # Save the modified image
             new_image_path = image_path.replace(".jpeg", "-overlay.jpeg")
-            image.convert("RGB").save(new_image_path)
+            final_image = image.convert("RGB")
+            final_image.save(new_image_path)
+            final_image.close()  # Explicitly close to free memory
             return new_image_path
         except Exception as e:
             self.logger.error(f"Failed to add text overlay to image: {e}")
             return image_path
+        finally:
+            # Ensure all PIL objects are properly closed
+            if overlay is not None:
+                try:
+                    overlay.close()
+                except:
+                    pass
+            if image is not None:
+                try:
+                    image.close()
+                except:
+                    pass
 
     def generate_featured_image(
         self, opportunity: Dict[str, Any]

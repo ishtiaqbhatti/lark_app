@@ -68,16 +68,43 @@ class FullSerpAnalyzer:
         serp_call_params["device"] = device
         serp_call_params["os"] = os_name
 
-        serp_results, cost = self.client.get_serp_results(
-            keyword,
-            location_code,
-            language_code,
-            client_cfg=self.config,
-            serp_call_params=serp_call_params,
-        )
+                serp_results, cost = self.client.get_serp_results(
 
-        if not serp_results:
-            return None, cost
+                    keyword,
+
+                    location_code,
+
+                    language_code,
+
+                    client_cfg=self.config,
+
+                    serp_call_params=serp_call_params,
+
+                )
+
+        
+
+                if not serp_results:
+
+                    self.logger.error(f"Failed to retrieve SERP results for keyword '{keyword}'")
+
+                    return None, cost
+
+                
+
+                if not isinstance(serp_results, dict):
+
+                    self.logger.error(f"SERP results is not a dictionary for keyword '{keyword}': {type(serp_results)}")
+
+                    return None, cost
+
+                
+
+                if not serp_results.get("items"):
+
+                    self.logger.warning(f"SERP results contain no items for keyword '{keyword}'")
+
+                    return None, cost
 
         serp_times = utils.calculate_serp_times(
             serp_results.get("datetime"), serp_results.get("previous_updated_time")

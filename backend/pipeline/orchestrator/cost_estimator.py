@@ -34,41 +34,57 @@ class CostEstimator:
             discovery_modes = discovery_params.get("discovery_modes", [])
             max_pages = self.client_cfg.get("discovery_max_pages", 1)
             num_seeds = len(seed_keywords)
+            
+            # Per API docs: include_clickstream_data DOUBLES the cost
+            include_clickstream = discovery_params.get("include_clickstream_data", False)
+            cost_multiplier = 2.0 if include_clickstream else 1.0
 
             if "keyword_ideas" in discovery_modes:
-                cost = KEYWORD_IDEAS_RATE * max_pages
+                base_cost = KEYWORD_IDEAS_RATE * max_pages
+                cost = base_cost * cost_multiplier
                 estimated_cost += cost
+                details = f"1 call x {max_pages} page(s) @ ${KEYWORD_IDEAS_RATE}/call"
+                if include_clickstream:
+                    details += " x2 (clickstream data enabled)"
                 explanation.append(
                     {
                         "service": "Keyword Ideas API",
-                        "details": f"1 call x {max_pages} page(s) @ ${KEYWORD_IDEAS_RATE}/call",
+                        "details": details,
                         "cost": cost,
                     }
                 )
 
             if "keyword_suggestions" in discovery_modes:
-                cost = KEYWORD_SUGGESTIONS_RATE * num_seeds * max_pages
+                base_cost = KEYWORD_SUGGESTIONS_RATE * num_seeds * max_pages
+                cost = base_cost * cost_multiplier
                 estimated_cost += cost
+                details = f"{num_seeds} seed(s) x {max_pages} page(s) @ ${KEYWORD_SUGGESTIONS_RATE}/call"
+                if include_clickstream:
+                    details += " x2 (clickstream data enabled)"
                 explanation.append(
                     {
                         "service": "Keyword Suggestions API",
-                        "details": f"{num_seeds} seed(s) x {max_pages} page(s) @ ${KEYWORD_SUGGESTIONS_RATE}/call",
+                        "details": details,
                         "cost": cost,
                     }
                 )
 
             if "related_keywords" in discovery_modes:
-                cost = RELATED_KEYWORDS_RATE * num_seeds * max_pages
+                base_cost = RELATED_KEYWORDS_RATE * num_seeds * max_pages
+                cost = base_cost * cost_multiplier
                 estimated_cost += cost
+                details = f"{num_seeds} seed(s) x {max_pages} page(s) @ ${RELATED_KEYWORDS_RATE}/call"
+                if include_clickstream:
+                    details += " x2 (clickstream data enabled)"
                 explanation.append(
                     {
                         "service": "Related Keywords API",
-                        "details": f"{num_seeds} seed(s) x {max_pages} page(s) @ ${RELATED_KEYWORDS_RATE}/call",
+                        "details": details,
                         "cost": cost,
                     }
                 )
 
-            return {"total_cost": estimated_cost, "breakdown": explanation}
+            return {"estimated_cost": round(estimated_cost, 2), "explanation": explanation}
 
         if not opportunity_id:
             raise ValueError(f"opportunity_id is required for action '{action}'.")

@@ -13,6 +13,8 @@ from ..models import (
     ApproveAnalysisRequest,
 )  # Add ApproveAnalysisRequest
 from backend.pipeline import WorkflowOrchestrator
+from backend.core.enums import SocialMediaStatus
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -743,8 +745,11 @@ async def update_social_media_status_endpoint(
                 detail="You do not have permission to access this opportunity.",
             )
 
-        valid_statuses = ["draft", "approved", "rejected", "scheduled", "published"]
-        if request.new_status not in valid_statuses:
+        # Use enum for validation
+        try:
+            validated_status = SocialMediaStatus(request.new_status)
+        except ValueError:
+            valid_statuses = [s.value for s in SocialMediaStatus]
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid status: {request.new_status}. Must be one of {valid_statuses}.",

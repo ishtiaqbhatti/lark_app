@@ -35,12 +35,19 @@ def apply_disqualification_rules(
             )
             return True, f"Rule 1: Missing critical data structure ({key}).", True
 
-    serp_info = opportunity.get("serp_info", {})
-    if not serp_info:
+    # Per API docs: serp_info can be null if include_serp_info=false
+    serp_info = opportunity.get("serp_info")
+    if serp_info is None:
         logging.getLogger(__name__).warning(
-            f"Disqualifying '{keyword}' due to empty 'serp_info' data."
+            f"Disqualifying '{keyword}' due to null 'serp_info' data (include_serp_info may not have been enabled)."
         )
         return True, "Rule 1: Missing SERP info data.", True
+    
+    if not isinstance(serp_info, dict):
+        logging.getLogger(__name__).warning(
+            f"Disqualifying '{keyword}' due to invalid 'serp_info' data type: {type(serp_info)}."
+        )
+        return True, "Rule 1: Invalid SERP info data structure.", True
 
     keyword_info = opportunity.get("keyword_info") or {}
     keyword_props = opportunity.get("keyword_properties") or {}
@@ -65,8 +72,18 @@ def apply_disqualification_rules(
 
     # Rule 2b (NEW): Check secondary intents for prohibitive types
     prohibited_intents = set(client_cfg.get("prohibited_intents", ["navigational"]))
-    foreign_intents = intent_info.get("foreign_intent", []) or []
-    if not prohibited_intents.isdisjoint(set(foreign_intents)):
+    # Per API docs: foreign_intent is null when there are no foreign intents, not an empty array
+    foreign_intents_raw = intent_info.get("foreign_intent")
+    foreign_intents = []
+    if foreign_intents_raw is not None:
+        if isinstance(foreign_intents_raw, list):
+            foreign_intents = foreign_intents_raw
+        else:
+            logging.getLogger(__name__).warning(
+                f"foreign_intent is not a list for keyword '{keyword}': {type(foreign_intents_raw)}"
+            )
+    
+    if foreign_intents and not prohibited_intents.isdisjoint(set(foreign_intents)):
         offending_intents = prohibited_intents.intersection(set(foreign_intents))
         return (
             True,
@@ -98,31 +115,45 @@ def apply_disqualification_rules(
         )
 
     trends = keyword_info.get("search_volume_trend", {})
+    if not isinstance(trends, dict):
+        logging.getLogger(__name__).warning(
+            f"search_volume_trend is not a dict for keyword '{keyword}': {type(trends)}"
+        )
+        trends = {}
+    
+    # Per API docs: trend values are integers (percentage change)
+    yearly_trend = trends.get("yearly")
+    quarterly_trend = trends.get("quarterly")
+    
+    # Validate and convert to int
     try:
-        yearly_trend = trends.get("yearly")
-        quarterly_trend = trends.get("quarterly")
-
-        yearly_threshold = client_cfg.get("yearly_trend_decline_threshold", -25)
-        quarterly_threshold = client_cfg.get("quarterly_trend_decline_threshold", 0)
-
-        yearly_check = utils.safe_compare(yearly_trend, yearly_threshold, "lt")
-        quarterly_check = utils.safe_compare(quarterly_trend, quarterly_threshold, "lt")
-
-        if yearly_check and quarterly_check:
-            return (
-                True,
-                f"Rule 6: Consistently declining trend. Yearly trend: {yearly_trend}% (below {yearly_threshold}% threshold), Quarterly trend: {quarterly_trend}% (below {quarterly_threshold}% threshold). Consider manual review for seasonality.",
-                False,
-            )
-    except TypeError:
+        if yearly_trend is not None:
+            yearly_trend = int(yearly_trend)
+        if quarterly_trend is not None:
+            quarterly_trend = int(quarterly_trend)
+    except (ValueError, TypeError) as e:
         logging.getLogger(__name__).error(
-            f"TypeError during trend analysis for keyword '{keyword}'. "
-            f"trends.get('yearly') value: {trends.get('yearly')}, type: {type(trends.get('yearly'))}. "
-            f"trends.get('quarterly') value: {trends.get('quarterly')}, type: {type(trends.get('quarterly'))}."
+            f"Failed to convert trend data to int for keyword '{keyword}'. "
+            f"yearly: {trends.get('yearly')} (type: {type(trends.get('yearly'))}), "
+            f"quarterly: {trends.get('quarterly')} (type: {type(trends.get('quarterly'))}). "
+            f"Error: {e}"
         )
         return (
             True,
-            "Rule 6: Failed to process trend data due to invalid format.",
+            "Rule 6: Invalid trend data format.",
+            False,
+        )
+
+    yearly_threshold = client_cfg.get("yearly_trend_decline_threshold", -25)
+    quarterly_threshold = client_cfg.get("quarterly_trend_decline_threshold", 0)
+
+    yearly_check = utils.safe_compare(yearly_trend, yearly_threshold, "lt")
+    quarterly_check = utils.safe_compare(quarterly_trend, quarterly_threshold, "lt")
+
+    if yearly_check and quarterly_check:
+        return (
+            True,
+            f"Rule 6: Consistently declining trend. Yearly trend: {yearly_trend}% (below {yearly_threshold}% threshold), Quarterly trend: {quarterly_trend}% (below {quarterly_threshold}% threshold). Consider manual review for seasonality.",
             False,
         )
 
@@ -352,9 +383,10 @@ def _check_hostile_serp_environment(
     """
     Rule 16: Disqualifies keywords where the SERP is dominated by features hostile to blog content.
     """
-    serp_info = opportunity.get("serp_info", {})
-    if not serp_info:
-        return False, None  # Cannot analyze if SERP info is missing
+    # Per API docs: serp_info is null if include_serp_info was not set to true
+    serp_info = opportunity.get("serp_info")
+    if serp_info is None or not isinstance(serp_info, dict):
+        return False, None  # Cannot analyze if SERP info is missing or invalid
 
     serp_types = set(serp_info.get("serp_item_types", []))
 

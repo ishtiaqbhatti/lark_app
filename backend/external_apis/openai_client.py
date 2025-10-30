@@ -21,6 +21,14 @@ class OpenAIClientWrapper:
 
     def _calculate_cost(self, usage: Dict[str, Any], model: str) -> float:
         """Calculates the cost of a chat completion based on token usage."""
+        if usage is None:
+            self.logger.warning("Usage data is None, cannot calculate cost.")
+            return 0.0
+        
+        if not isinstance(usage, dict):
+            self.logger.warning(f"Usage data is not a dictionary: {type(usage)}")
+            return 0.0
+        
         # Pricing per 1M tokens
         pricing = {
             "gpt-4o": {"input": 5.00, "output": 15.00},
@@ -37,7 +45,6 @@ class OpenAIClientWrapper:
         output_cost = (completion_tokens / 1_000_000) * model_pricing["output"]
 
         return input_cost + output_cost
-        pass
 
     def call_chat_completion(
         self,
@@ -127,27 +134,7 @@ class OpenAIClientWrapper:
 
         return None, "All OpenAI API call attempts failed."
 
-    def call_image_generation(
-        self,
-        prompt: str,
-        style_formula: str,
-        quality: str,
-        size: str,
-        model: Optional[str] = None,
-        retries: int = 3,
-    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        """
-        Mocks OpenAI image generation. This function is present but *not used* in the final plan
-        as Pexels is the exclusive image source. It's kept for potential future re-integration.
-        """
-        if model is None:
-            model = self.client_cfg.get('default_image_model', 'dall-e-3')
-        
-        self.logger.info(
-            "OpenAI image generation is configured but Pexels is prioritized. This function will not be called."
-        )
-        return (
-            None,
-            None,
-            "OpenAI image generation bypassed; Pexels is the primary source.",
-        )
+    # REMOVED: call_image_generation method
+    # OpenAI image generation is not used - Pexels is the exclusive image source.
+    # If you need to re-enable OpenAI images in the future, implement from scratch
+    # using the official OpenAI Images API documentation.

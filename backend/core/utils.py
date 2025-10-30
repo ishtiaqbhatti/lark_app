@@ -99,32 +99,53 @@ def safe_compare(
 
 def parse_datetime_string(dt_str: Optional[str]) -> Optional[str]:
     """
-    Parses a DataForSEO datetime string (e.g., "yyyy-mm-dd hh-mm-ss +00:00")
-    into a consistent ISO format string or returns None.
+    Parses a DataForSEO datetime string into a consistent ISO format string.
+    
+    Per API docs, format is: "yyyy-mm-dd hh-mm-ss +00:00"
+    Example: "2019-11-15 12:57:46 +00:00"
+    
+    Returns ISO format string or None if parsing fails.
     """
     if not dt_str:
         return None
+    
+    if not isinstance(dt_str, str):
+        logging.getLogger(__name__).warning(
+            f"datetime value is not a string: {type(dt_str)}"
+        )
+        return None
 
-    # Remove timezone offset for consistent parsing if it's always +00:00
-    cleaned_dt_str = dt_str.replace(" +00:00", "").strip()
-
-    formats = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S",  # Added ISO 8601 format
-        "%Y-%m-%d %H:%M:%S.%f",  # With microseconds
-        "%Y-%m-%d",  # Date only
-    ]
-
-    for fmt in formats:
-        try:
-            return datetime.strptime(cleaned_dt_str, fmt).isoformat()
-        except ValueError:
-            pass
-
-    logging.getLogger(__name__).warning(
-        f"Could not parse datetime string: {dt_str}. Returning None."
-    )
-    return None
+    # API format is consistent: "yyyy-mm-dd hh-mm-ss +00:00"
+    # We need to parse this exact format and convert to ISO
+    try:
+        # Remove timezone offset and parse
+        cleaned_dt_str = dt_str.replace(" +00:00", "").strip()
+        parsed_dt = datetime.strptime(cleaned_dt_str, "%Y-%m-%d %H:%M:%S")
+        return parsed_dt.isoformat()
+    except ValueError:
+        # Fallback for edge cases (malformed data)
+        logging.getLogger(__name__).warning(
+            f"Could not parse datetime string with expected format: {dt_str}"
+        )
+        
+        # Try alternate formats as fallback
+        alternate_formats = [
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M:%S.%f",
+            "%Y-%m-%d",
+        ]
+        
+        cleaned_dt_str = dt_str.replace(" +00:00", "").strip()
+        for fmt in alternate_formats:
+            try:
+                return datetime.strptime(cleaned_dt_str, fmt).isoformat()
+            except ValueError:
+                continue
+        
+        logging.getLogger(__name__).error(
+            f"Failed to parse datetime string with any known format: {dt_str}. Returning None."
+        )
+        return None
 
 
 def calculate_serp_times(

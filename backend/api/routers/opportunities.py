@@ -56,6 +56,29 @@ async def get_all_opportunities_summary_endpoint(
             status_code=403,
             detail="You do not have permission to access this client's resources.",
         )
+    
+    # Validate pagination parameters
+    if page < 1:
+        raise HTTPException(status_code=400, detail="page must be >= 1")
+    
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+    
+    # Validate sort_by against whitelist
+    allowed_sort_fields = {
+        "strategic_score", "date_added", "keyword", "status",
+        "search_volume", "keyword_difficulty", "cpc"
+    }
+    if sort_by not in allowed_sort_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sort_by field. Allowed: {allowed_sort_fields}"
+        )
+    
+    # Validate sort_direction
+    if sort_direction not in ["asc", "desc"]:
+        raise HTTPException(status_code=400, detail="sort_direction must be 'asc' or 'desc'")
+    
     params = {
         "status": status,
         "keyword": keyword,
@@ -292,11 +315,22 @@ async def update_opportunity_content_endpoint(
     opportunity_id: int,
     payload: ContentUpdatePayload,
     db: DatabaseManager = Depends(get_db),
-    orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),  # Add this
+    orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
 ):
     """Updates the main HTML content of an opportunity's ai_content blob with server-side sanitization."""
     logger.info(f"Received manual content update for opportunity {opportunity_id}")
     from datetime import datetime
+
+    # Validate opportunity_id is positive integer
+    if opportunity_id <= 0:
+        raise HTTPException(status_code=400, detail="Invalid opportunity_id")
+    
+    # Validate payload size (prevent DoS via large payloads)
+    if len(payload.article_body_html) > 5_000_000:  # 5MB limit
+        raise HTTPException(
+            status_code=413,
+            detail="Content exceeds maximum size of 5MB"
+        )
 
     try:
         current_opp = db.get_opportunity_by_id(opportunity_id)

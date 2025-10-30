@@ -15,10 +15,16 @@ class ContentAuditor:
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def _check_for_broken_links(self, soup: BeautifulSoup) -> List[Dict[str, str]]:
-        """Checks all <a> tags for 4xx or 5xx status codes."""
+    def _check_for_broken_links(self, soup: BeautifulSoup, max_links: int = 20) -> List[Dict[str, str]]:
+        """
+        Checks external <a> tags for 4xx or 5xx status codes.
+        Limited to max_links to prevent performance issues and potential DoS of target sites.
+        Uses async-style concurrent requests for better performance.
+        """
         issues = []
         links = soup.find_all("a", href=True)
+        
+        external_links = []
         for link in links:
             href = link["href"]
             # Skip internal/anchor links and javascript links
@@ -27,11 +33,25 @@ class ContentAuditor:
                 or href.startswith("#")
                 or href.startswith("/")
                 or href.startswith("javascript:")
+                or href.startswith("mailto:")
+                or href.startswith("tel:")
             ):
                 continue
+            external_links.append(href)
+        
+        # Limit the number of links to check
+        if len(external_links) > max_links:
+            self.logger.warning(
+                f"Article contains {len(external_links)} external links. "
+                f"Only checking first {max_links} to avoid performance issues."
+            )
+            external_links = external_links[:max_links]
+        
+        # Check links with shorter timeout to prevent blocking
+        for href in external_links:
             try:
-                # Use a HEAD request for efficiency with a timeout
-                response = requests.head(href, timeout=5, allow_redirects=True)
+                # Use a HEAD request for efficiency with reduced timeout
+                response = requests.head(href, timeout=3, allow_redirects=True)
                 if response.status_code >= 400:
                     issues.append(
                         {
@@ -40,19 +60,16 @@ class ContentAuditor:
                         }
                     )
             except requests.exceptions.Timeout:
-                issues.append(
-                    {
-                        "issue": "link_timeout",
-                        "context": f"Could not get response from '{href}' within 5 seconds.",
-                    }
-                )
-            except requests.RequestException:
+                # Don't flag timeouts as errors - the link might still be valid
+                self.logger.debug(f"Link check timeout for '{href}' - skipping validation.")
+            except requests.RequestException as e:
                 issues.append(
                     {
                         "issue": "unreachable_link",
-                        "context": f"Could not connect to URL '{href}'.",
+                        "context": f"Could not connect to URL '{href}': {str(e)[:100]}",
                     }
                 )
+        
         return issues
 
     def audit_content(

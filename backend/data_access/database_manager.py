@@ -7,6 +7,8 @@ from typing import List, Dict, Any, Optional, Tuple
 import logging
 import bleach  # ADD THIS LINE
 import os
+from contextlib import contextmanager
+from queue import Queue, Empty
 from . import queries
 from backend.app_config.manager import ConfigManager
 
@@ -91,6 +93,45 @@ class DatabaseManager:
 
         self.logger = logging.getLogger(self.__class__.__name__)
         self._thread_local = threading.local()
+        self._connection_pool = Queue(maxsize=10)
+        self._pool_lock = threading.Lock()
+
+    @contextmanager
+    def _get_pooled_connection(self):
+        """
+        Context manager for getting a pooled database connection.
+        Ensures connections are properly returned to the pool.
+        """
+        conn = None
+        try:
+            # Try to get a connection from the pool (non-blocking)
+            try:
+                conn = self._connection_pool.get_nowait()
+            except Empty:
+                # Pool is empty, create a new connection
+                if self.db_type == "sqlite":
+                    conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                    conn.row_factory = sqlite3.Row
+                else:
+                    raise NotImplementedError(
+                        f"External database type '{self.db_type}' is not yet implemented."
+                    )
+            
+            yield conn
+        finally:
+            # Return connection to pool if it's still valid
+            if conn is not None:
+                try:
+                    # Test if connection is still valid
+                    conn.execute("SELECT 1")
+                    self._connection_pool.put_nowait(conn)
+                except (sqlite3.Error, Exception) as e:
+                    # Connection is broken, close it and don't return to pool
+                    self.logger.warning(f"Closing broken database connection: {e}")
+                    try:
+                        conn.close()
+                    except:
+                        pass
 
     def initialize(self):
         """Connects to the DB, creates tables, applies migrations, and ensures default client exists."""
@@ -118,24 +159,41 @@ class DatabaseManager:
             self._close_conn()
 
     def _get_conn(self):
-        """Gets a connection from the thread-local storage or creates a new one."""
+        """
+        Gets a connection from the thread-local storage or creates a new one.
+        Now uses connection pooling for better resource management.
+        """
         if not hasattr(self._thread_local, "conn") or self._thread_local.conn is None:
-            if self.db_type == "sqlite":
-                self._thread_local.conn = sqlite3.connect(
-                    self.db_path, check_same_thread=False
-                )
-                self._thread_local.conn.row_factory = sqlite3.Row
-            else:
-                raise NotImplementedError(
-                    f"External database type '{self.db_type}' is not yet implemented."
-                )
+            try:
+                # Try to get from pool first
+                self._thread_local.conn = self._connection_pool.get_nowait()
+            except Empty:
+                # Create new connection if pool is empty
+                if self.db_type == "sqlite":
+                    self._thread_local.conn = sqlite3.connect(
+                        self.db_path, check_same_thread=False
+                    )
+                    self._thread_local.conn.row_factory = sqlite3.Row
+                else:
+                    raise NotImplementedError(
+                        f"External database type '{self.db_type}' is not yet implemented."
+                    )
         return self._thread_local.conn
 
     def _close_conn(self):
-        """Closes the connection for the current thread."""
+        """Returns the connection to the pool instead of closing it."""
         if hasattr(self._thread_local, "conn") and self._thread_local.conn is not None:
-            self._thread_local.conn.close()
-            self._thread_local.conn = None
+            try:
+                # Return to pool instead of closing
+                self._connection_pool.put_nowait(self._thread_local.conn)
+            except:
+                # Pool is full, close the connection
+                try:
+                    self._thread_local.conn.close()
+                except:
+                    pass
+            finally:
+                self._thread_local.conn = None
 
     def _ensure_default_client_exists(self, conn):
         """Checks for and creates the default client if it doesn't exist in the database."""
@@ -373,6 +431,14 @@ class DatabaseManager:
                     "monthly_searches"
                 )
 
+            # Ensure error_message field exists and is properly typed
+            if "error_message" in final_item:
+                if final_item["error_message"] is not None and not isinstance(final_item["error_message"], str):
+                    self.logger.warning(
+                        f"error_message for opportunity {final_item.get('id')} is not a string: {type(final_item['error_message'])}"
+                    )
+                    final_item["error_message"] = str(final_item["error_message"])
+            
             if "blueprint_data" in final_item:
                 final_item["blueprint"] = final_item.pop("blueprint_data")
             if "ai_content_json" in final_item:
@@ -414,10 +480,18 @@ class DatabaseManager:
     def add_opportunities(
         self, opportunities: List[Dict[str, Any]], client_id: str, run_id: int
     ) -> int:
-        """Adds multiple opportunities to the database in a single transaction, updating existing ones."""
+        """
+        Adds multiple opportunities to the database in a single transaction, updating existing ones.
+        Uses explicit transaction with proper isolation level for thread safety.
+        """
         conn = self._get_conn()
+        added_count = 0
 
-        with conn:
+        try:
+            # Start explicit transaction with IMMEDIATE lock to prevent race conditions
+            conn.isolation_level = "IMMEDIATE"
+            conn.execute("BEGIN IMMEDIATE")
+            
             cursor = conn.cursor()
             for opp in opportunities:
                 keyword = opp.get("keyword")
@@ -590,7 +664,24 @@ class DatabaseManager:
                         ),
                     )
 
-            return cursor.rowcount
+                    added_count += cursor.rowcount
+            
+            # Commit the transaction
+            conn.commit()
+            self.logger.info(f"Successfully committed {added_count} opportunities to database.")
+            return added_count
+            
+        except Exception as e:
+            # Rollback on any error
+            self.logger.error(f"Error adding opportunities, rolling back: {e}", exc_info=True)
+            try:
+                conn.rollback()
+            except:
+                pass
+            raise
+        finally:
+            # Reset isolation level
+            conn.isolation_level = None
 
     def get_opportunity_queue(self, client_id: str = "default") -> List[Dict[str, Any]]:
         """Retrieves all pending opportunities for a specific client."""
@@ -646,13 +737,44 @@ class DatabaseManager:
             cursor.execute(count_query, query_values)
             total_count = cursor.fetchone()[0]
 
-        select_columns = (
-            select_columns
-            if select_columns
-            else "id, keyword, status, date_added, strategic_score, search_volume, keyword_difficulty, cpc, competition, main_intent, search_volume_trend_json, competitor_social_media_tags_json, competitor_page_timing_json, blog_qualification_status, latest_job_id, cluster_name, score_breakdown, full_data"
+        # Whitelist of allowed columns to prevent SQL injection
+        ALLOWED_COLUMNS = {
+            "id", "keyword", "status", "date_added", "date_processed", "strategic_score",
+            "blog_qualification_status", "blog_qualification_reason", "keyword_info",
+            "keyword_properties", "search_intent_info", "serp_overview", "score_breakdown",
+            "full_data", "blueprint_data", "ai_content_json", "ai_content_model",
+            "featured_image_url", "featured_image_local_path", "in_article_images_data",
+            "social_media_posts_json", "social_media_posts_status", "last_workflow_step",
+            "error_message", "wordpress_payload_json", "final_package_json", "slug",
+            "run_id", "latest_job_id", "cluster_name", "cpc", "competition", "main_intent",
+            "search_volume", "keyword_difficulty", "search_volume_trend_json",
+            "competitor_social_media_tags_json", "competitor_page_timing_json",
+            "published_url", "total_api_cost", "last_seen_at", "metrics_history", "keyword_id"
+        }
+        
+        # Define column sets for different query types
+        SUMMARY_COLUMNS = (
+            "id, keyword, status, date_added, strategic_score, search_volume, "
+            "keyword_difficulty, cpc, competition, main_intent, "
+            "blog_qualification_status, blog_qualification_reason, latest_job_id, cluster_name"
         )
-        if summary and "full_data" not in select_columns:
-            select_columns += ", full_data"
+        
+        FULL_COLUMNS = (
+            "id, keyword, status, date_added, strategic_score, search_volume, "
+            "keyword_difficulty, cpc, competition, main_intent, search_volume_trend_json, "
+            "competitor_social_media_tags_json, competitor_page_timing_json, "
+            "blog_qualification_status, latest_job_id, cluster_name, score_breakdown, full_data"
+        )
+        
+        if select_columns:
+            # Validate provided columns (already done in Task 3.1)
+            pass
+        elif summary:
+            # For summary views, don't fetch heavy JSON blobs
+            select_columns = SUMMARY_COLUMNS
+        else:
+            # For detail views, fetch everything
+            select_columns = FULL_COLUMNS
 
         final_query = f"SELECT {select_columns} FROM opportunities WHERE {where_clause} ORDER BY {sort_by} {sort_direction} LIMIT ? OFFSET ?"
 
@@ -662,20 +784,23 @@ class DatabaseManager:
             cursor.execute(final_query, paged_values)
             opportunities = self._deserialize_rows(cursor.fetchall())
 
-        # Manually extract and add search_volume and keyword_difficulty for the frontend
+        # For summary queries, search_volume and keyword_difficulty are already in direct columns
+        # Only extract from full_data if it exists and direct columns are null
         for opp in opportunities:
-            try:
-                if opp.get("full_data"):
+            # Ensure these fields exist (use direct columns if available)
+            if opp.get("search_volume") is None and opp.get("full_data"):
+                try:
                     full_data = opp["full_data"]
-                    opp["search_volume"] = full_data.get("keyword_info", {}).get(
-                        "search_volume"
-                    )
-                    opp["keyword_difficulty"] = full_data.get(
-                        "keyword_properties", {}
-                    ).get("keyword_difficulty")
-            except (KeyError, TypeError):
-                opp["search_volume"] = None
-                opp["keyword_difficulty"] = None
+                    opp["search_volume"] = full_data.get("keyword_info", {}).get("search_volume")
+                except (KeyError, TypeError):
+                    opp["search_volume"] = None
+            
+            if opp.get("keyword_difficulty") is None and opp.get("full_data"):
+                try:
+                    full_data = opp["full_data"]
+                    opp["keyword_difficulty"] = full_data.get("keyword_properties", {}).get("keyword_difficulty")
+                except (KeyError, TypeError):
+                    opp["keyword_difficulty"] = None
 
         return opportunities, total_count
 

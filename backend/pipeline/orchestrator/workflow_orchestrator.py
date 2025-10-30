@@ -10,8 +10,16 @@ class WorkflowOrchestrator:
     def _run_full_auto_workflow_background(
         self, job_id: str, opportunity_id: int, override_validation: bool
     ):
-        """Internal method to execute the full workflow from validation to generation."""
+        original_status = None
+        original_workflow_step = None
+        
         try:
+            # Record original state for potential rollback
+            opportunity = self.db_manager.get_opportunity_by_id(opportunity_id)
+            if opportunity:
+                original_status = opportunity.get("status")
+                original_workflow_step = opportunity.get("last_workflow_step")
+            
             self.db_manager.update_opportunity_workflow_state(
                 opportunity_id, "in_progress", "running"
             )
@@ -65,6 +73,25 @@ class WorkflowOrchestrator:
         except Exception as e:
             error_msg = f"Full auto workflow for {opportunity_id} failed: {e}"
             self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
+            
+            # Attempt to rollback to previous state
+            if original_status and original_workflow_step:
+                try:
+                    self.logger.info(
+                        f"Rolling back opportunity {opportunity_id} to previous state: "
+                        f"status={original_status}, step={original_workflow_step}"
+                    )
+                    self.db_manager.update_opportunity_workflow_state(
+                        opportunity_id,
+                        original_workflow_step,
+                        original_status,
+                        error_message=f"Workflow failed and rolled back: {str(e)[:200]}"
+                    )
+                except Exception as rollback_error:
+                    self.logger.error(
+                        f"Failed to rollback opportunity {opportunity_id}: {rollback_error}"
+                    )
+            
             # The job's _run_job wrapper will catch this and handle the final 'failed' state.
             raise
 

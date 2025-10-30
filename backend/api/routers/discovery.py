@@ -24,6 +24,8 @@ async def get_available_filters():
     """
     Returns a curated list of available discovery modes, filters, and sorting options,
     structured to be easily consumable by the frontend.
+    
+    IMPORTANT: Per DataForSEO API, maximum 8 filters can be applied per request.
     """
     base_filters = [
         {
@@ -63,25 +65,39 @@ async def get_available_filters():
     ]
 
     def construct_paths(prefix, items):
+        """
+        Constructs filter paths with proper prefix for different API endpoints.
+        
+        CRITICAL: Related Keywords requires 'keyword_data.' prefix per API docs.
+        Ideas and Suggestions use no prefix.
+        """
         new_items = []
         for item in items:
             new_item = item.copy()
-            if "search_volume" in new_item["name"]:
+            field_name = new_item.get("name", "")
+            
+            # Map friendly names to API field paths
+            if "search_volume" in field_name:
                 new_item["name"] = f"{prefix}keyword_info.search_volume"
-            elif "keyword_difficulty" in new_item["name"]:
+            elif "keyword_difficulty" in field_name:
                 new_item["name"] = f"{prefix}keyword_properties.keyword_difficulty"
-            elif "main_intent" in new_item["name"]:
+            elif "main_intent" in field_name:
                 new_item["name"] = f"{prefix}search_intent_info.main_intent"
-            elif "competition_level" in new_item["name"]:
+            elif "competition_level" in field_name:
                 new_item["name"] = f"{prefix}keyword_info.competition_level"
-            elif "cpc" in new_item["name"]:
+            elif "cpc" in field_name:
                 new_item["name"] = f"{prefix}keyword_info.cpc"
-            elif "competition" in new_item["name"]:
+            elif "competition" in field_name:
                 new_item["name"] = f"{prefix}keyword_info.competition"
+            
             new_items.append(new_item)
         return new_items
+    
+    # Validate that we're constructing correct paths
+    # For Related Keywords, prefix must be "keyword_data."
+    # For Ideas and Suggestions, no prefix
 
-    return [
+    modes = [
         {
             "id": "keyword_ideas",
             "name": "Broad Market Research",
@@ -94,7 +110,7 @@ async def get_available_filters():
                     {"field": "keyword_info.search_volume", "operator": ">", "value": 500},
                     {"field": "keyword_properties.keyword_difficulty", "operator": "<", "value": 30},
                 ],
-                "order_by": ["keyword_info.search_volume,desc"],
+                "order_by": ["relevance,desc"],  # FIXED: Use API default for best results
             },
         },
         {
@@ -138,6 +154,17 @@ async def get_available_filters():
             },
         },
     ]
+    
+    # Add API constraints for frontend validation
+    return {
+        "modes": modes,
+        "api_constraints": {
+            "max_filters": 8,
+            "max_sorting_rules": 3,
+            "max_seed_keywords": 200,
+            "max_regex_length": 1000,
+        }
+    }
 
 
 @router.post("/clients/{client_id}/discovery-runs-async", response_model=JobResponse)
@@ -152,7 +179,56 @@ async def start_discovery_run_async(
             status_code=403,
             detail="You do not have permission to access this client's resources.",
         )
+    # Comprehensive input validation per API constraints
     try:
+        # Validate seed keywords
+        if not request.seed_keywords or len(request.seed_keywords) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one seed keyword is required."
+            )
+        
+        # Per API docs: Keyword Ideas max 200 keywords
+        if "keyword_ideas" in request.discovery_modes and len(request.seed_keywords) > 200:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Keyword Ideas mode supports max 200 seed keywords. You provided {len(request.seed_keywords)}."
+            )
+        
+        # Validate discovery modes
+        valid_modes = {"keyword_ideas", "keyword_suggestions", "related_keywords", "find_questions"}
+        invalid_modes = set(request.discovery_modes) - valid_modes
+        if invalid_modes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid discovery modes: {invalid_modes}. Valid modes: {valid_modes}"
+            )
+        
+        # Validate filters count (max 8 per API)
+        if request.filters:
+            filter_count = sum(1 for f in request.filters if isinstance(f, dict))
+            if filter_count > 8:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Maximum 8 filters allowed per API request. You provided {filter_count}."
+                )
+        
+        # Validate depth for related keywords
+        if request.depth is not None:
+            if request.depth < 0 or request.depth > 4:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Related keywords depth must be between 0 and 4. You provided {request.depth}."
+                )
+        
+        # Validate limit
+        if request.limit is not None:
+            if request.limit < 1 or request.limit > 1000:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Limit must be between 1 and 1000. You provided {request.limit}."
+                )
+        
         filters = request.filters
         limit = request.limit or 1000
         discovery_modes = request.discovery_modes

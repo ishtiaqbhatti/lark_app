@@ -3,11 +3,22 @@ from typing import Dict, Any, Tuple
 
 
 def _normalize_value(value: float, max_value: float, invert: bool = False) -> float:
-    """Helper to normalize a value to a 0-100 scale."""
-    if value is None or max_value is None or max_value == 0:
+    """Helper to normalize a value to a 0-100 scale with safe division."""
+    if value is None or max_value is None:
+        return 0.0
+    
+    # Prevent division by zero
+    if max_value == 0:
+        return 0.0
+    
+    # Ensure we're working with numbers
+    try:
+        value_float = float(value)
+        max_float = float(max_value)
+    except (ValueError, TypeError):
         return 0.0
 
-    normalized = min(float(value) / float(max_value), 1.0)
+    normalized = min(value_float / max_float, 1.0)
 
     if invert:
         return (1 - normalized) * 100

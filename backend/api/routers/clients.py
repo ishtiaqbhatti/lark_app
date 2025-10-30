@@ -6,6 +6,8 @@ from data_access.database_manager import DatabaseManager
 from ..dependencies import get_db, get_orchestrator
 from .. import globals as api_globals
 from backend.pipeline import WorkflowOrchestrator
+from backend.core.logging_utils import safe_log_dict
+
 
 
 class NewClientRequest(BaseModel):
@@ -17,11 +19,14 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+from backend.core.logging_utils import safe_log_dict
+
+# FIND (line 37-40):
 @router.get("/clients")
 async def get_all_clients(db: DatabaseManager = Depends(get_db)):
     logger.info("Received request for /clients")
     clients = db.get_clients()
-    logger.info(f"Found clients: {clients}")
+    logger.info(f"Found {len(clients)} clients")  # Don't log full client data
     if not clients:
         return []
     return clients

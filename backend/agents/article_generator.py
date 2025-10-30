@@ -12,12 +12,47 @@ class SectionalArticleGenerator:
     """
 
     def __init__(
-        self, openai_client: OpenAIClientWrapper, config: Dict[str, Any], db_manager
+        self, openai_client: OpenAIWrapper, config: Dict[str, Any], db_manager
     ):
         self.openai_client = openai_client
         self.config = config
         self.logger = logging.getLogger(self.__class__.__name__)
         self.prompt_assembler = DynamicPromptAssembler(db_manager)
+
+    def _sanitize_prompt_input(self, user_input: str, max_length: int = 5000) -> str:
+        """
+        Sanitizes user input before inserting into prompts to prevent injection attacks.
+        """
+        if not isinstance(user_input, str):
+            return ""
+        
+        # Truncate to prevent excessive token usage
+        sanitized = user_input[:max_length]
+        
+        # Remove or escape potential prompt injection patterns
+        # Remove system-level instructions
+        dangerous_patterns = [
+            "ignore previous instructions",
+            "ignore all previous",
+            "disregard previous",
+            "new instructions:",
+            "system:",
+            "assistant:",
+            "[SYSTEM]",
+            "[INST]",
+        ]
+        
+        sanitized_lower = sanitized.lower()
+        for pattern in dangerous_patterns:
+            if pattern in sanitized_lower:
+                self.logger.warning(f"Potential prompt injection detected: '{pattern}' in input")
+                # Replace the pattern with safe text
+                sanitized = sanitized.replace(pattern, "[filtered]")
+                sanitized = sanitized.replace(pattern.upper(), "[filtered]")
+                sanitized = sanitized.replace(pattern.title(), "[filtered]")
+        
+        return sanitized
+
 
     def _generate_component(
         self, messages: List[Dict[str, str]], model: str, temperature: float
@@ -100,23 +135,30 @@ class SectionalArticleGenerator:
         previous_section_content: str,
     ) -> Tuple[Optional[str], float]:
         brief = opportunity.get("blueprint", {}).get("ai_content_brief", {})
+        
+        # Sanitize all user-controlled inputs
+        safe_keyword = self._sanitize_prompt_input(opportunity.get("keyword", ""), max_length=200)
+        safe_section_title = self._sanitize_prompt_input(section_title, max_length=500)
+        safe_sub_points = [self._sanitize_prompt_input(sp, max_length=200) for sp in (section_sub_points or [])]
+        safe_previous_content = self._sanitize_prompt_input(previous_section_content[-1000:], max_length=1000)
+        
         prompt = f"""
-        You are an expert SEO content writer and subject matter expert. Your task is to write a single, detailed section for a blog post about "{opportunity["keyword"]}".
+        You are an expert SEO content writer and subject matter expert. Your task is to write a single, detailed section for a blog post about "{safe_keyword}".
 
-        **Current Section to Write:** "{section_title}"
-        **Key Sub-points to cover in this section:** {", ".join(section_sub_points) if section_sub_points else "N/A"}
+        **Current Section to Write:** "{safe_section_title}"
+        **Key Sub-points to cover in this section:** {", ".join(safe_sub_points) if safe_sub_points else "N/A"}
         **Content from the Previous Section (for transition and context):**
-        ...{previous_section_content[-1000:]}...
+        ...{safe_previous_content}...
 
         **Instructions:**
-        - Write a comprehensive, in-depth section covering the topic "{section_title}".
+        - Write a comprehensive, in-depth section covering the topic "{safe_section_title}".
         - If provided, elaborate on all key sub-points, using them to structure the section's content.
         - Ensure a smooth, logical transition from the previous section's content.
         - Incorporate relevant entities and demonstrate expertise by using practical examples or insights.
         - Persona: {brief.get("target_audience_persona")}
         - Tone: {opportunity.get("client_cfg", {}).get("brand_tone")}
         
-        Return a JSON object with a single key "content_html" containing the HTML for this section (e.g., using <p>, <ul>, <h3> tags). Do NOT include the main <h2> tag for "{section_title}" itself.
+        Return a JSON object with a single key "content_html" containing the HTML for this section (e.g., using <p>, <ul>, <h3> tags). Do NOT include the main <h2> tag for "{safe_section_title}" itself.
         """
         return self._generate_component(
             [{"role": "user", "content": prompt}],

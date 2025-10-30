@@ -15,25 +15,48 @@ FORBIDDEN_API_FILTER_FIELDS = [
 def sanitize_filters_for_api(filters: List[Any]) -> List[Any]:
     """
     Removes any filters attempting to use forbidden internal metrics or data sources.
+    Per API docs: "note that you can not filter the results by `relevance`"
     """
+    if not filters:
+        return []
+    
     sanitized = []
+    removed_count = 0
+    
     for item in filters:
         if isinstance(item, list) and len(item) >= 1 and isinstance(item[0], str):
             field_path = item[0].lower()
-            if any(
-                forbidden in field_path for forbidden in FORBIDDEN_API_FILTER_FIELDS
-            ):
+            
+            # Check against forbidden fields
+            if any(forbidden in field_path for forbidden in FORBIDDEN_API_FILTER_FIELDS):
                 logger.warning(
                     f"Forbidden field '{field_path}' detected in API filter. Removing it."
                 )
+                removed_count += 1
                 continue
+        
         sanitized.append(item)
+    
+    # Clean up trailing logical operators if filters were removed
+    if sanitized and isinstance(sanitized[-1], str) and sanitized[-1].lower() in ["and", "or"]:
+        sanitized.pop()
+    
+    # Clean up leading logical operators
+    if sanitized and isinstance(sanitized[0], str) and sanitized[0].lower() in ["and", "or"]:
+        sanitized.pop(0)
+    
+    if removed_count > 0:
+        logger.info(f"Removed {removed_count} forbidden filter(s) from API request")
+    
     return sanitized
 
 
 def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any]]:
     """
     Builds filter lists for API-side filtering for KD, SV, Competition, and Intent.
+    Returns (filters_for_ideas_and_suggestions, filters_for_related_keywords)
+    
+    CRITICAL: Related Keywords requires 'keyword_data.' prefix for ALL fields per API docs.
     """
     std_api_filters = []
     rel_api_filters = []
@@ -64,11 +87,7 @@ def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any
         )
         rel_api_filters.extend(
             [
-                [
-                    "keyword_data.keyword_info.competition_level",
-                    "in",
-                    allowed_comp_levels,
-                ],
+                ["keyword_data.keyword_info.competition_level", "in", allowed_comp_levels],
                 "and",
             ]
         )
@@ -85,15 +104,10 @@ def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any
             ]
         )
 
-    # NEW: Closely Variants
-    closely_variants = config.get("closely_variants")
-    if closely_variants is not None:
-        std_api_filters.extend(
-            [["closely_variants", "=", closely_variants], "and"]
-        )  # This param is at top level
-        # Related keywords endpoint does not have closely_variants
+    # REMOVED: closely_variants from filters - it's a top-level parameter, not a filter
+    # It will be handled in Task 2.6
 
-    # NEW: CPC Range Filters
+    # CPC Range Filters
     min_cpc_filter = config.get("min_cpc_filter")
     max_cpc_filter = config.get("max_cpc_filter")
     if min_cpc_filter is not None:
@@ -107,7 +121,7 @@ def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any
             [["keyword_data.keyword_info.cpc", "<=", max_cpc_filter], "and"]
         )
 
-    # NEW: Competition Range Filters
+    # Competition Range Filters
     min_competition = config.get("min_competition")
     max_competition = config.get("max_competition")
     if min_competition is not None:
@@ -125,7 +139,7 @@ def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any
             [["keyword_data.keyword_info.competition", "<=", max_competition], "and"]
         )
 
-    # NEW: Max Competition Level Filter
+    # Max Competition Level Filter
     max_competition_level = config.get("max_competition_level")
     if max_competition_level:
         levels = ["LOW", "MEDIUM", "HIGH"]
@@ -140,20 +154,28 @@ def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any
             ]
         )
 
-    # NEW: Regex Filter (from Task 34)
+    # Regex Filter
     search_phrase_regex = config.get("search_phrase_regex")
     if search_phrase_regex and search_phrase_regex.strip():
+        # Validate regex length (max 1000 chars per API docs)
+        if len(search_phrase_regex) > 1000:
+            logger.warning(
+                f"Regex pattern exceeds 1000 character limit ({len(search_phrase_regex)} chars). Truncating."
+            )
+            search_phrase_regex = search_phrase_regex[:1000]
+        
         std_api_filters.extend([["keyword", "regex", search_phrase_regex], "and"])
         rel_api_filters.extend(
             [["keyword_data.keyword", "regex", search_phrase_regex], "and"]
         )
 
-    if std_api_filters:
+    # Remove trailing "and" operators
+    if std_api_filters and std_api_filters[-1] == "and":
         std_api_filters.pop()
-    if rel_api_filters:
+    if rel_api_filters and rel_api_filters[-1] == "and":
         rel_api_filters.pop()
 
-    # Apply sanitation (Weakness 3.7 Fix)
+    # Apply sanitation
     std_api_filters = sanitize_filters_for_api(std_api_filters)
     rel_api_filters = sanitize_filters_for_api(rel_api_filters)
 

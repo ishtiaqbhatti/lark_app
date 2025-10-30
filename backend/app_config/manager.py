@@ -177,6 +177,15 @@ class ConfigManager:
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logging()
         self._global_settings = self._load_and_validate_global()
+        
+        # Validate configuration integrity
+        config_warnings = self.validate_configuration_integrity()
+        if config_warnings:
+            self.logger.warning(
+                f"Configuration validation found {len(config_warnings)} issue(s):"
+            )
+            for warning in config_warnings:
+                self.logger.warning(f"  - {warning}")
 
     def _configure_logging(self):
         """Sets up basic logging for the application."""
@@ -258,45 +267,146 @@ class ConfigManager:
             )
             raise ValueError("UI_PASSWORD must be set in the .env file.")
 
-        # Load all settings from settings.ini
+        # Load all settings from settings.ini with enhanced error handling
+        parsing_errors = []
+        
         for section in self.config_parser.sections():
             for key, value in self.config_parser.items(section):
                 try:
                     target_type = self._setting_types.get(key)
+                    
                     if target_type is bool:
-                        settings[key] = self.config_parser.getboolean(section, key)
+                        try:
+                            settings[key] = self.config_parser.getboolean(section, key)
+                        except ValueError as e:
+                            self.logger.error(
+                                f"Failed to parse boolean for [{section}]{key}='{value}'. Using False. Error: {e}"
+                            )
+                            settings[key] = False
+                            parsing_errors.append(f"{section}.{key}")
+                    
                     elif target_type is int:
-                        settings[key] = self.config_parser.getint(section, key)
+                        try:
+                            settings[key] = self.config_parser.getint(section, key)
+                        except ValueError as e:
+                            self.logger.error(
+                                f"Failed to parse integer for [{section}]{key}='{value}'. Using 0. Error: {e}"
+                            )
+                            settings[key] = 0
+                            parsing_errors.append(f"{section}.{key}")
+                    
                     elif target_type is float:
-                        settings[key] = self.config_parser.getfloat(section, key)
+                        try:
+                            settings[key] = self.config_parser.getfloat(section, key)
+                        except ValueError as e:
+                            self.logger.error(
+                                f"Failed to parse float for [{section}]{key}='{value}'. Using 0.0. Error: {e}"
+                            )
+                            settings[key] = 0.0
+                            parsing_errors.append(f"{section}.{key}")
+                    
                     elif target_type is list:
-                        raw_values = self._get_list_from_config(section, key)
-                        if key == "serp_feature_filters":
-                            parsed_filters = []
-                            for f_str in raw_values:
-                                if f_str.startswith("no_"):
-                                    parsed_filters.append(
-                                        {"type": "has_not", "feature": f_str[3:]}
-                                    )
-                                elif f_str.startswith("has_"):
-                                    parsed_filters.append(
-                                        {"type": "has", "feature": f_str[4:]}
-                                    )
-                            settings[key] = parsed_filters
-                        else:
-                            settings[key] = raw_values
+                        try:
+                            raw_values = self._get_list_from_config(section, key)
+                            if key == "serp_feature_filters":
+                                parsed_filters = []
+                                for f_str in raw_values:
+                                    if f_str.startswith("no_"):
+                                        parsed_filters.append(
+                                            {"type": "has_not", "feature": f_str[3:]}
+                                        )
+                                    elif f_str.startswith("has_"):
+                                        parsed_filters.append(
+                                            {"type": "has", "feature": f_str[4:]}
+                                        )
+                                settings[key] = parsed_filters
+                            else:
+                                settings[key] = raw_values
+                        except Exception as e:
+                            self.logger.error(
+                                f"Failed to parse list for [{section}]{key}='{value}'. Using empty list. Error: {e}"
+                            )
+                            settings[key] = []
+                            parsing_errors.append(f"{section}.{key}")
+                    
                     else:  # Default to string if no type is mapped
                         settings[key] = value
+                
                 except Exception as e:
-                    self.logger.critical(
-                        f"FATAL CONFIG ERROR: Could not parse key [{section}]{key} with value '{value}' to expected type: {e}"
+                    self.logger.error(
+                        f"Unexpected error parsing [{section}]{key}='{value}': {e}. Skipping this setting."
                     )
-                    raise ValueError(
-                        f"Configuration key parsing failed for [{section}]{key}. Value: '{value}'."
-                    )
+                    parsing_errors.append(f"{section}.{key}")
+        
+        if parsing_errors:
+            self.logger.warning(
+                f"Configuration parsing completed with {len(parsing_errors)} errors. "
+                f"Problematic keys: {', '.join(parsing_errors[:10])}"
+            )
 
         self.logger.info("Global settings loaded.")
         return settings
+
+    def validate_configuration_integrity(self) -> List[str]:
+        """
+        Validates configuration for common issues and inconsistencies.
+        Returns list of validation warnings.
+        """
+        warnings = []
+        
+        # Validate weight totals
+        weight_keys = [
+            "ease_of_ranking_weight",
+            "traffic_potential_weight",
+            "commercial_intent_weight",
+            "serp_features_weight",
+            "growth_trend_weight",
+            "serp_freshness_weight",
+            "serp_volatility_weight",
+            "competitor_weakness_weight",
+            "competitor_performance_weight",
+        ]
+        
+        total_weight = sum(self._global_settings.get(k, 0) for k in weight_keys)
+        if total_weight == 0:
+            warnings.append("CRITICAL: All scoring weights are 0. Scoring will not work.")
+        elif total_weight != 100:
+            warnings.append(
+                f"WARNING: Scoring weights sum to {total_weight}, not 100. "
+                "This is allowed but may indicate misconfiguration."
+            )
+        
+        # Validate threshold ranges
+        if self._global_settings.get("min_search_volume", 0) > self._global_settings.get("max_sv_for_scoring", 100000):
+            warnings.append(
+                "WARNING: min_search_volume is greater than max_sv_for_scoring. "
+                "This may cause unexpected scoring behavior."
+            )
+        
+        # Validate API keys are present
+        required_keys = ["dataforseo_login", "dataforseo_password", "openai_api_key"]
+        for key in required_keys:
+            if not self._global_settings.get(key):
+                warnings.append(f"CRITICAL: Required API credential '{key}' is not set.")
+        
+        # Validate filter limit settings
+        max_filters = 8  # Per API docs
+        # This is informational only
+        
+        # Validate discovery modes
+        discovery_strategies = self._global_settings.get("discovery_strategies", [])
+        if not discovery_strategies:
+            warnings.append("WARNING: No discovery_strategies configured.")
+        
+        # Validate depth setting for related keywords
+        related_depth = self._global_settings.get("discovery_related_depth", 1)
+        if related_depth < 0 or related_depth > 4:
+            warnings.append(
+                f"WARNING: discovery_related_depth={related_depth} is outside valid range [0-4]. "
+                "API will reject requests."
+            )
+        
+        return warnings
 
     def get_global_config(self) -> Dict[str, Any]:
         """Returns the loaded global configuration."""

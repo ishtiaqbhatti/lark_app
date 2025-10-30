@@ -45,6 +45,33 @@ def run_discovery_phase(
     logger.info(
         f"Found {len(existing_keywords)} existing keywords to exclude from API request."
     )
+    
+    # 1b. Early cannibalization check on seed keywords
+    # Filter out seed keywords that already exist (would be caught later anyway)
+    original_seed_count = len(seed_keywords)
+    seed_keywords = [kw for kw in seed_keywords if kw.lower() not in existing_keywords]
+    
+    if len(seed_keywords) < original_seed_count:
+        logger.info(
+            f"Early cannibalization filter: Removed {original_seed_count - len(seed_keywords)} "
+            f"seed keywords that already exist in database."
+        )
+    
+    if not seed_keywords:
+        logger.warning("All seed keywords already exist in database. Skipping discovery.")
+        return {
+            "stats": {
+                "total_cost": 0.0,
+                "raw_counts": {},
+                "total_raw_count": 0,
+                "total_unique_count": 0,
+                "disqualification_reasons": {"Already exists in database": original_seed_count},
+                "disqualified_count": original_seed_count,
+                "final_qualified_count": 0,
+            },
+            "total_cost": 0.0,
+            "opportunities": [],
+        }
 
     # 2. Expand seed keywords into a large list of opportunities.
     expansion_result = expander.expand_seed_keyword(

@@ -3,6 +3,7 @@ import threading
 import time
 import uuid
 import logging
+import json
 from typing import Dict, Any, Callable, Optional
 from datetime import datetime
 from backend.data_access import queries
@@ -55,33 +56,59 @@ class JobManager:
         return job_id
 
     def update_job_progress(self, job_id: str, step: str, message: str, status: Optional[str] = None):
-        """Appends a progress log to the job record in the database."""
+        """
+        Appends a progress log to the job record in the database with thread safety.
+        Uses a lock to prevent race conditions when multiple threads update the same job.
+        """
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "step": step,
             "message": message,
         }
         
-        # This operation needs to be atomic to prevent race conditions.
-        # We'll fetch the current job, update the log, and save it back.
-        # A more advanced setup might use a database transaction or a JSON_APPEND function.
-        job_info = self.get_job_status(job_id)
-        if job_info:
-            progress_log = job_info.get("progress_log", [])
-            if isinstance(progress_log, str): # Handle case where it might be a JSON string
-                try:
-                    progress_log = json.loads(progress_log)
-                except json.JSONDecodeError:
-                    progress_log = []
+        # Use database-level locking for thread safety
+        conn = self.db_manager._get_conn()
+        try:
+            conn.isolation_level = "IMMEDIATE"
+            conn.execute("BEGIN IMMEDIATE")
             
-            progress_log.append(log_entry)
-            job_info["progress_log"] = progress_log
+            # Fetch current job within transaction
+            cursor = conn.execute(queries.GET_JOB, (job_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                job_info = dict(row)
+                
+                # Parse existing progress log
+                progress_log = job_info.get("progress_log", [])
+                if isinstance(progress_log, str):
+                    try:
+                        progress_log = json.loads(progress_log) if progress_log else []
+                    except json.JSONDecodeError:
+                        progress_log = []
+                elif not isinstance(progress_log, list):
+                    progress_log = []
+                
+                # Append new log entry
+                progress_log.append(log_entry)
+                job_info["progress_log"] = progress_log
 
-            # Optionally update the overall job status at the same time
-            if status:
-                job_info["status"] = status
+                # Optionally update the overall job status
+                if status:
+                    job_info["status"] = status
 
-            self.db_manager.update_job(job_info)
+                # Update in database
+                self.db_manager.update_job(job_info)
+            
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update job progress for {job_id}: {e}")
+            try:
+                conn.rollback()
+            except:
+                pass
+        finally:
+            conn.isolation_level = None
 
     def _run_job(
         self, job_id: str, target_function: Callable, args: tuple, kwargs: dict

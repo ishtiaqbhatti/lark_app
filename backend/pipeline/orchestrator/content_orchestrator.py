@@ -2,6 +2,8 @@
 import logging
 import traceback
 from typing import Dict, Any, List, Optional
+from datetime import datetime
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,7 @@ class ContentOrchestrator:
     ):
         """
         Internal method to execute the full agentic content generation and enrichment pipeline.
-        This is the complete, final version of this function.
+        Includes proper cleanup on errors.
         """
         opportunity = self.db_manager.get_opportunity_by_id(opportunity_id)
         if not opportunity:
@@ -82,11 +84,24 @@ class ContentOrchestrator:
             job_id, "running", progress=5, result={"step": "Initializing Generation"}
         )
 
+        # Track temporary files for cleanup
+        temp_files_to_cleanup = []
+        
         try:
-            # --- START COST TRACKING MODIFICATION ---
-            total_api_cost = opportunity.get("blueprint", {}).get("metadata", {}).get("total_api_cost", 0.0)
-            self.logger.info(f"Initial cost from blueprint: ${total_api_cost:.4f}")
-            # --- END COST TRACKING MODIFICATION ---
+            # Initialize centralized cost tracking
+            workflow_cost_id = f"generation_{opportunity_id}"
+            
+            # Start with costs from blueprint (analysis phase)
+            blueprint_cost = opportunity.get("blueprint", {}).get("metadata", {}).get("total_api_cost", 0.0)
+            if blueprint_cost > 0:
+                self.cost_tracker.track_cost(
+                    workflow_cost_id,
+                    "Previous Analysis Phase",
+                    blueprint_cost,
+                    "Costs from blueprint generation"
+                )
+            
+            self.logger.info(f"Initial cost from blueprint: ${blueprint_cost:.4f}")
 
             self.job_manager.update_job_status(
                 job_id, "running", progress=10, result={"step": "Building Content Tree"}
@@ -101,6 +116,7 @@ class ContentOrchestrator:
 
             full_article_context_for_conclusion = ""
             previous_content = ""
+            full_article_parts = []  # Use list accumulation for efficiency
             for i, node in enumerate(act):
                 progress = 15 + int((i / len(act)) * 40)
                 self.job_manager.update_job_status(
@@ -123,17 +139,22 @@ class ContentOrchestrator:
                         previous_content,
                     )
                 elif node["type"] == "conclusion":
+                    # Join accumulated parts efficiently
+                    full_article_context_for_conclusion = "".join(full_article_parts)
                     content_html, cost = sectional_generator.generate_conclusion(
                         opportunity, full_article_context_for_conclusion
                     )
                 
-                total_api_cost += cost # Aggregate cost
+                self.cost_tracker.track_cost(
+                    workflow_cost_id,
+                    f"Content Generation - {node['title'][:30]}",
+                    cost,
+                    f"Generated {node['type']} section"
+                )
 
                 if content_html:
                     node["content_html"] = content_html
-                    full_article_context_for_conclusion += (
-                        f"<h2>{node['title']}</h2>\n{content_html}\n"
-                    )
+                    full_article_parts.append(f"<h2>{node['title']}</h2>\n{content_html}\n")
                     previous_content = content_html
                 else:
                     raise RuntimeError(
@@ -263,9 +284,22 @@ class ContentOrchestrator:
             featured_image_data, image_cost = self.image_generator.generate_featured_image(
                 opportunity
             )
-            total_api_cost += image_cost
+            if image_cost > 0:
+                self.cost_tracker.track_cost(
+                    workflow_cost_id,
+                    "Featured Image Generation",
+                    image_cost,
+                    "Pexels API or image generation"
+                )
+            
             social_posts, social_cost = self.social_crafter.craft_posts(opportunity)
-            total_api_cost += social_cost
+            if social_cost > 0:
+                self.cost_tracker.track_cost(
+                    workflow_cost_id,
+                    "Social Media Post Generation",
+                    social_cost,
+                    f"Generated {len(social_posts) if social_posts else 0} posts"
+                )
 
             self.job_manager.update_job_status(
                 job_id,
@@ -283,7 +317,13 @@ class ContentOrchestrator:
                     self.client_id,
                 )
             )
-            total_api_cost += link_cost
+            if link_cost > 0:
+                self.cost_tracker.track_cost(
+                    workflow_cost_id,
+                    "Internal Linking Suggestions",
+                    link_cost,
+                    f"Generated {len(internal_link_suggestions) if internal_link_suggestions else 0} suggestions"
+                )
 
             final_package = self.html_formatter.format_final_package(
                 opportunity,
@@ -294,6 +334,13 @@ class ContentOrchestrator:
             self.job_manager.update_job_status(
                 job_id, "running", progress=95, result={"step": "Saving to Database"}
             )
+            # Get final total cost from tracker
+            total_api_cost = self.cost_tracker.get_workflow_cost(workflow_cost_id)
+            cost_breakdown = self.cost_tracker.get_workflow_breakdown(workflow_cost_id)
+            
+            self.logger.info(f"Total content generation cost: ${total_api_cost:.4f}")
+            self.logger.info(f"Cost breakdown: {len(cost_breakdown)} API calls")
+            
             self.db_manager.save_full_content_package(
                 opportunity_id,
                 opportunity["ai_content"],
@@ -302,8 +349,11 @@ class ContentOrchestrator:
                 [],
                 social_posts,
                 final_package,
-                total_api_cost, # Pass total cost
+                total_api_cost,
             )
+            
+            # Clear cost tracking data for this workflow
+            self.cost_tracker.clear_workflow(workflow_cost_id)
 
             self.job_manager.update_job_status(
                 job_id,
@@ -320,6 +370,43 @@ class ContentOrchestrator:
                 f"Agentic content generation failed: {e}\n{traceback.format_exc()}"
             )
             self.logger.error(error_msg)
+            
+            # COMPENSATING TRANSACTIONS: Clean up all artifacts from partial execution
+            
+            # 1. Cleanup temporary files
+            for temp_file in temp_files_to_cleanup:
+                try:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                        self.logger.info(f"Cleaned up temporary file: {temp_file}")
+                except Exception as cleanup_error:
+                    self.logger.warning(f"Failed to cleanup {temp_file}: {cleanup_error}")
+            
+            # 2. Clear any partial content that might have been saved
+            try:
+                # Save an error state to ai_content to indicate failure
+                error_content = {
+                    "error": str(e)[:500],
+                    "failed_at": datetime.now().isoformat(),
+                    "article_body_html": None,
+                }
+                self.db_manager.update_opportunity_ai_content(
+                    opportunity_id,
+                    error_content,
+                    "error_state"
+                )
+            except Exception as db_error:
+                self.logger.error(f"Failed to save error state to database: {db_error}")
+            
+            # 3. Clear cost tracking for this failed workflow
+            workflow_cost_id = f"generation_{opportunity_id}"
+            try:
+                final_cost = self.cost_tracker.get_workflow_cost(workflow_cost_id)
+                self.logger.info(f"Total cost before failure: ${final_cost:.4f}")
+                self.cost_tracker.clear_workflow(workflow_cost_id)
+            except:
+                pass
+            
             self.db_manager.update_opportunity_workflow_state(
                 opportunity_id, "content_generation_failed", "failed", str(e)
             )
