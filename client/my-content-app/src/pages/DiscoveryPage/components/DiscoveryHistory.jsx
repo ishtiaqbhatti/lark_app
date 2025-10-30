@@ -17,10 +17,12 @@ const STATUS_CONFIG = {
   pending: { color: 'default', text: 'Pending', icon: <ClockCircleOutlined /> },
 };
 
-const DiscoveryHistory = ({ runs, totalRuns, page, setPage, isLoading, onRerun, isRerunning }) => {
+const DiscoveryHistory = ({
+  runs, totalRuns, page, setPage, isLoading, onRerun, isRerunning,
+  searchQuery, setSearchQuery, setDateRange
+}) => {
   const navigate = useNavigate();
-  const [filterText, setFilterText] = useState('');
-  const [dateRange, setDateRange] = useState(null);
+  // Local state for filters is removed, now using props
   const [errorModal, setErrorModal] = useState({ open: false, content: '' });
   const [detailsModal, setDetailsModal] = useState({ open: false, run: null });
 
@@ -32,27 +34,7 @@ const DiscoveryHistory = ({ runs, totalRuns, page, setPage, isLoading, onRerun, 
     setDetailsModal({ open: true, run: run });
   };
 
-  const filteredRuns = useMemo(() => {
-    let filtered = runs;
 
-    if (filterText) {
-      const lowerCaseFilter = filterText.toLowerCase();
-      filtered = filtered.filter(run => 
-        run.parameters?.seed_keywords?.some(kw => kw.toLowerCase().includes(lowerCaseFilter)) || 
-        run.status.toLowerCase().includes(lowerCaseFilter)
-      );
-    }
-
-    if (dateRange) {
-      const [start, end] = dateRange;
-      filtered = filtered.filter(run => {
-        const runDate = new Date(run.start_time);
-        return runDate >= start && runDate <= end;
-      });
-    }
-
-    return filtered;
-  }, [runs, filterText, dateRange]);
 
   const expandedRowRender = (record) => {
     if (!record.results_summary) {
@@ -77,12 +59,19 @@ const DiscoveryHistory = ({ runs, totalRuns, page, setPage, isLoading, onRerun, 
       render: (status, record) => {
         const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
         const progress = record.results_summary?.progress || (status === 'running' ? record.progress || 0 : 0);
+        const stepMessage = record.results_summary?.step || (status === 'running' ? 'Initializing...' : null);
+
         return (
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
-            <Tag icon={config.icon} color={config.color} onClick={() => status === 'failed' && handleShowError(record.error_message)} style={{ cursor: status === 'failed' ? 'pointer' : 'default', marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column', gap: '4px' }}>
+            <Tag icon={config.icon} color={config.color} onClick={() => status === 'failed' && handleShowError(record.error_message)} style={{ cursor: status === 'failed' ? 'pointer' : 'default' }}>
               {config.text}
             </Tag>
-            {status === 'running' && <Progress percent={progress} size="small" status="active" showInfo={false} style={{ width: 100 }} />}
+            {status === 'running' && (
+              <>
+                <Text type="secondary" style={{ fontSize: '12px', fontStyle: 'italic' }}>{stepMessage}</Text>
+                <Progress percent={progress} size="small" status="active" showInfo={false} style={{ width: 100, margin: 0 }} />
+              </>
+            )}
           </div>
         );
       },
@@ -107,25 +96,32 @@ const DiscoveryHistory = ({ runs, totalRuns, page, setPage, isLoading, onRerun, 
       },
     },
     {
-      title: 'Discovery Mode',
-      dataIndex: 'parameters',
-      key: 'discovery_mode',
+      title: 'New Keywords',
+      dataIndex: 'results_summary',
+      key: 'new_keywords',
       responsive: ['lg'],
-      render: (params) => {
-        const modes = params?.discovery_modes || ['ideas'];
-        const filters = params?.filters;
-        const orderBy = params?.order_by;
-        const tooltipContent = (
-          <pre style={{ maxWidth: 500, whiteSpace: 'pre-wrap' }}>
-            {JSON.stringify({ filters, order_by: orderBy }, null, 2)}
-          </pre>
-        );
-        return (
-          <Tooltip title={tooltipContent}>
-            {modes.map(mode => <Tag key={mode}>{mode.replace('_', ' ').toUpperCase()}</Tag>)}
-          </Tooltip>
-        );
-      },
+      render: (summary) => summary ? <Tag color="blue">{summary.final_added_to_db || 0}</Tag> : 'N/A',
+    },
+    {
+      title: 'Qualified',
+      dataIndex: 'results_summary',
+      key: 'qualified',
+      responsive: ['lg'],
+      render: (summary) => summary ? <Tag color="green">{summary.final_qualified_count || 0}</Tag> : 'N/A',
+    },
+    {
+      title: 'Disqualified',
+      dataIndex: 'results_summary',
+      key: 'disqualified',
+      responsive: ['lg'],
+      render: (summary) => summary ? <Tag color="red">{summary.disqualified_count || 0}</Tag> : 'N/A',
+    },
+    {
+      title: 'Cost',
+      dataIndex: 'results_summary',
+      key: 'cost',
+      responsive: ['lg'],
+      render: (summary) => summary ? `$${(summary.total_cost || 0).toFixed(2)}` : 'N/A',
     },
     {
       title: 'Actions',
@@ -134,13 +130,10 @@ const DiscoveryHistory = ({ runs, totalRuns, page, setPage, isLoading, onRerun, 
       fixed: 'right',
       render: (_, record) => (
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <Tooltip title="Re-run this discovery with the same settings">
-            <Button icon={<ReloadOutlined />} onClick={() => onRerun(record.id)} disabled={isRerunning} />
-          </Tooltip>
           {record.status === 'completed' && (
             <>
               <Tooltip title="View Run Details">
-                <Button icon={<EyeOutlined />} onClick={() => handleShowDetails(record)} />
+                <Button type="default" icon={<EyeOutlined />} onClick={() => handleShowDetails(record)} />
               </Tooltip>
               <Tooltip title="View Keywords">
                 <Button type="primary" icon={<ProfileOutlined />} onClick={() => navigate(`/discovery-run/${record.id}`)} />
@@ -160,17 +153,20 @@ const DiscoveryHistory = ({ runs, totalRuns, page, setPage, isLoading, onRerun, 
               <Search 
                 placeholder="Filter by keyword or status..." 
                 allowClear 
-                value={filterText} 
-                onChange={e => setFilterText(e.target.value)} 
+                value={searchQuery} 
+                onChange={e => setSearchQuery(e.target.value)} 
                 style={{ width: 250, marginRight: '8px' }} 
               />
-              <RangePicker onChange={(dates) => setDateRange(dates)} />
+              <RangePicker onChange={(dates) => {
+                const dateStrings = dates ? [dates[0].toISOString(), dates[1].toISOString()] : null;
+                setDateRange(dateStrings);
+              }} />
             </Col>
         </Row>
       <Table
         loading={isLoading}
         columns={columns}
-        dataSource={filteredRuns}
+        dataSource={runs}
         rowKey="id"
         scroll={{ x: 800 }}
         locale={{ emptyText: <Empty description="No discovery runs found. Start one above to see your history." /> }}

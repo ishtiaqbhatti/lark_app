@@ -62,14 +62,13 @@ class DiscoveryOrchestrator:
                 )
                 self.db_manager.update_discovery_run_status(run_id, "cancelled")
                 return {"message": "Job cancelled by user request."}
-
+            
             self.job_manager.update_job_status(
                 job_id,
                 "running",
                 progress=10,
-                result={"step": "Fetching & Scoring keywords"},
+                result={"step": "Fetching Keywords from API..."},
             )
-
             from pipeline.step_01_discovery.run_discovery import run_discovery_phase
 
             discovery_result = run_discovery_phase(
@@ -92,11 +91,11 @@ class DiscoveryOrchestrator:
             stats = discovery_result.get("stats", {})
             total_cost = discovery_result.get("total_cost", 0.0)
             processed_opportunities = discovery_result.get("opportunities", [])
-
+            
             self.job_manager.update_job_status(
-                job_id, "running", progress=75, result={"step": "Saving to Database"}
+                job_id, "running", progress=75, result={"step": "Saving Results to Database..."}
             )
-
+            
             num_added = 0
             if processed_opportunities:
                 run_logger.info(
@@ -134,6 +133,16 @@ class DiscoveryOrchestrator:
             self.job_manager.update_job_status(
                 job_id, "failed", progress=100, error=str(e)
             )
+            # --- ADD THIS NEW BLOCK ---
+            # Mark any partially processed opportunities from this run as failed.
+            run_logger.info(f"Marking partially fetched opportunities from run_id {run_id} as 'failed_scoring'.")
+            conn = self.db_manager._get_conn()
+            with conn:
+                conn.execute(
+                    "UPDATE opportunities SET status = 'failed_scoring', error_message = ? WHERE run_id = ? AND status = 'fetched'",
+                    (f"Parent discovery job {job_id} failed.", run_id)
+                )
+            # --- END NEW BLOCK ---
             raise
 
     def run_discovery_and_save(

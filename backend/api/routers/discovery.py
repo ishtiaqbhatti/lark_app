@@ -10,7 +10,7 @@ from ..models import (
 )  # Ensure DiscoveryRunRequest is imported
 
 # --- NEW IMPORTS AND MODELS FOR FRONTEND FEATURES ---
-from typing import Dict
+from typing import Dict, Optional
 
 
 # --- END NEW IMPORTS AND MODELS ---
@@ -129,14 +129,13 @@ async def start_discovery_run_async(
     try:
         filters = request.filters
         limit = request.limit or 1000
+        
+        # --- INTELLIGENT DISCOVERY MODE SELECTION ---
+        # The individual API calls will now enforce specific limits and depth=1.
+        # The overall 'depth' for the run is now fixed to 1 as per new requirements.
         discovery_modes = ["keyword_ideas", "keyword_suggestions", "related_keywords"]
-
-        if limit <= 500:
-            depth = 2
-        elif limit <= 2000:
-            depth = 3
-        else:
-            depth = 4
+        depth = 1
+        # --- END OF CHANGE ---
 
         parameters = {
             "seed_keywords": request.seed_keywords,
@@ -146,9 +145,10 @@ async def start_discovery_run_async(
             "filters_override": request.filters_override,
             "limit": limit,
             "depth": depth,
-            "include_clickstream_data": request.include_clickstream_data,  # NEW
-            "closely_variants": request.closely_variants,  # NEW
-            "ignore_synonyms": request.ignore_synonyms,  # NEW
+            "include_clickstream_data": False,  # Hardcoded
+            "closely_variants": False,  # Hardcoded
+            "ignore_synonyms": True,  # Hardcoded
+            "exact_match": True, # Hardcoded
         }
         run_id = discovery_service.create_discovery_run(
             client_id=client_id, parameters=parameters
@@ -163,9 +163,10 @@ async def start_discovery_run_async(
             request.filters_override,
             limit,
             depth,
-            request.ignore_synonyms,
-            request.include_clickstream_data,  # NEW
-            request.closely_variants,  # NEW
+            ignore_synonyms=True,
+            include_clickstream_data=False,
+            closely_variants=False,
+            exact_match=True,
         )
         return {"job_id": job_id, "message": f"Discovery run job {job_id} started."}
     except Exception as e:
@@ -182,6 +183,9 @@ async def get_discovery_runs(
     client_id: str,
     page: int = 1,
     limit: int = 10,
+    search_query: Optional[str] = None,
+    date_range_start: Optional[str] = None,
+    date_range_end: Optional[str] = None,
     db: DatabaseManager = Depends(get_db),
     orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
 ):
@@ -190,7 +194,14 @@ async def get_discovery_runs(
             status_code=403,
             detail="You do not have permission to access this client's resources.",
         )
-    runs, total_count = db.get_all_discovery_runs_paginated(client_id, page, limit)
+    
+    filters = {
+        "search_query": search_query,
+        "start_date": date_range_start,
+        "end_date": date_range_end,
+    }
+
+    runs, total_count = db.get_all_discovery_runs_paginated(client_id, page, limit, filters)
     if not runs:
         return {"items": [], "total_items": 0, "page": page, "limit": limit}
     return {"items": runs, "total_items": total_count, "page": page, "limit": limit}

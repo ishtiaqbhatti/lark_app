@@ -416,7 +416,7 @@ class DatabaseManager:
     ) -> int:
         """Adds multiple opportunities to the database in a single transaction, updating existing ones."""
         conn = self._get_conn()
-
+        num_added = 0
         with conn:
             cursor = conn.cursor()
             for opp in opportunities:
@@ -505,6 +505,7 @@ class DatabaseManager:
                     )
                 else:
                     # Insert new opportunity
+                    num_added += 1
                     # Extract values for direct columns, potentially nulling them out from JSON if no longer needed there
                     cpc_val = keyword_info.get("cpc")
                     competition_val = keyword_info.get("competition")
@@ -535,6 +536,14 @@ class DatabaseManager:
                         else None
                     )
 
+                    # Create a copy of the opportunity data to avoid modifying the original object in memory
+                    full_data_copy = opp.copy()
+                    # Remove keys that are now stored in dedicated top-level columns to prevent data duplication.
+                    # This only applies to new records being inserted.
+                    full_data_copy.pop("keyword_info", None)
+                    full_data_copy.pop("keyword_properties", None)
+                    full_data_copy.pop("search_intent_info", None)
+                    
                     cursor.execute(
                         """
                         INSERT INTO opportunities (
@@ -579,18 +588,18 @@ class DatabaseManager:
                             datetime.now().isoformat(),
                             json.dumps([]),
                             keyword_id,
-                            json.dumps(opp),
-                            cpc_val,  # NEW DIRECT COLUMN
-                            competition_val,  # NEW DIRECT COLUMN
-                            main_intent_val,  # NEW DIRECT COLUMN
-                            search_volume_trend_json_val,  # NEW DIRECT COLUMN
-                            competitor_social_media_tags_json_val,  # NEW DIRECT COLUMN
-                            competitor_page_timing_json_val,  # NEW DIRECT COLUMN
+                            json.dumps(full_data_copy), # Use the modified copy for full_data
+                            cpc_val,
+                            competition_val,
+                            main_intent_val,
+                            search_volume_trend_json_val,
+                            competitor_social_media_tags_json_val,
+                            competitor_page_timing_json_val,
                             opp.get("social_media_posts_status", "draft"),
                         ),
                     )
 
-            return cursor.rowcount
+        return num_added
 
     def get_opportunity_queue(self, client_id: str = "default") -> List[Dict[str, Any]]:
         """Retrieves all pending opportunities for a specific client."""
@@ -1427,23 +1436,39 @@ class DatabaseManager:
             )
 
     def get_all_discovery_runs_paginated(
-        self, client_id: str, page: int, limit: int
+        self, client_id: str, page: int, limit: int, filters: Optional[Dict[str, Any]] = None
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """Retrieves all discovery runs for a specific client with pagination."""
+        """Retrieves all discovery runs for a specific client with pagination and filtering."""
         conn = self._get_conn()
+        
+        base_query = "FROM discovery_runs WHERE client_id = ?"
+        query_params = [client_id]
+        
+        where_clauses = []
+        if filters:
+            if filters.get("search_query"):
+                where_clauses.append("(parameters LIKE ? OR status LIKE ?)")
+                search_term = f"%{filters['search_query']}%"
+                query_params.extend([search_term, search_term])
+            if filters.get("start_date") and filters.get("end_date"):
+                where_clauses.append("start_time BETWEEN ? AND ?")
+                query_params.extend([filters["start_date"], filters["end_date"]])
+
+        if where_clauses:
+            base_query += " AND " + " AND ".join(where_clauses)
+
         with conn:
             cursor = conn.cursor()
-
-            # Get total count
-            cursor.execute(
-                "SELECT COUNT(*) FROM discovery_runs WHERE client_id = ?", (client_id,)
-            )
+            
+            # Get total count with filters
+            count_query = f"SELECT COUNT(*) {base_query}"
+            cursor.execute(count_query, query_params)
             total_count = cursor.fetchone()[0]
-
-            cursor.execute(
-                "SELECT * FROM discovery_runs WHERE client_id = ? ORDER BY start_time DESC LIMIT ? OFFSET ?",
-                (client_id, limit, (page - 1) * limit),
-            )
+            
+            # Get paginated data with filters
+            select_query = f"SELECT * {base_query} ORDER BY start_time DESC LIMIT ? OFFSET ?"
+            cursor.execute(select_query, query_params + [limit, (page - 1) * limit])
+            
             runs = []
             for row in cursor.fetchall():
                 run = dict(row)

@@ -31,6 +31,10 @@ class DataForSEOClientV2:
     ONPAGE_INSTANT_PAGES = "on_page/instant_pages"
     ONPAGE_CONTENT_PARSING = "on_page/content_parsing/live"  # Add this line
 
+    KEYWORD_IDEAS_MODE_LIMIT = 10
+    KEYWORD_SUGGESTIONS_MODE_LIMIT = 100
+    RELATED_KEYWORDS_MODE_LIMIT = 100
+
     def __init__(
         self,
         login: str,
@@ -902,7 +906,7 @@ class DataForSEOClientV2:
                 "keywords": seed_keywords,
                 "location_code": location_code,
                 "language_code": language_code,
-                "limit": int(limit or 100),
+                "limit": self.KEYWORD_IDEAS_MODE_LIMIT,
                 "include_serp_info": True,
                 "ignore_synonyms": ignore_synonyms,
                 "closely_variants": closely_variants,
@@ -911,7 +915,7 @@ class DataForSEOClientV2:
                 "include_clickstream_data": include_clickstream,
             }
             ideas_items, cost = self.post_with_paging(
-                ideas_endpoint, ideas_task, max_pages=max_pages, tag="discovery_ideas"
+                ideas_endpoint, ideas_task, max_pages=1, tag="discovery_ideas"
             )
             total_cost += cost
 
@@ -929,7 +933,7 @@ class DataForSEOClientV2:
                     "keyword": seed_keyword,
                     "location_code": location_code,
                     "language_code": language_code,
-                    "limit": int(limit or 100),
+                    "limit": self.KEYWORD_SUGGESTIONS_MODE_LIMIT,
                     "include_serp_info": True,
                     "exact_match": exact_match,
                     "ignore_synonyms": ignore_synonyms,
@@ -943,7 +947,7 @@ class DataForSEOClientV2:
                 suggestions_items, cost = self.post_with_paging(
                     suggestions_endpoint,
                     suggestions_task,
-                    max_pages=max_pages,
+                    max_pages=1,
                     tag=f"discovery_suggestions:{seed_keyword[:20]}",
                 )
                 total_cost += cost
@@ -958,13 +962,17 @@ class DataForSEOClientV2:
         if "related_keywords" in discovery_modes:
             self.logger.info("Fetching related keywords...")
             related_endpoint = self.LABS_RELATED_KEYWORDS
-            for seed in seed_keywords:
+            
+            # Limit to max 10 seed keywords for related keyword generation
+            seed_keywords_for_related = seed_keywords[:10]
+
+            for seed in seed_keywords_for_related:
                 related_task = {
                     "keyword": seed,
                     "location_code": location_code,
                     "language_code": language_code,
-                    "depth": int(depth or client_cfg.get("discovery_related_depth", 3)),
-                    "limit": int(limit or 100),
+                    "depth": 1, # Max to one page for discovery
+                    "limit": self.RELATED_KEYWORDS_MODE_LIMIT,
                     "include_serp_info": True,
                     "filters": self._prioritize_and_limit_filters(
                         self._convert_filters_to_api_format(filters.get("related"))
@@ -979,7 +987,7 @@ class DataForSEOClientV2:
                 related_items, cost = self.post_with_paging(
                     related_endpoint,
                     related_task,
-                    max_pages=max_pages,
+                    max_pages=1,
                     tag=f"discovery_related:{seed[:20]}",
                 )
                 total_cost += cost

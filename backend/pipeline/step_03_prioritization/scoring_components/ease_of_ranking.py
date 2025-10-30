@@ -77,7 +77,7 @@ def calculate_ease_of_ranking_score(
     }
 
     # 5. Search Engine Results Count
-    results_count = serp_info.get("se_results_count", 1_000_000)
+    results_count = serp_info.get("se_results_count") or 0
     if results_count > 0:
         log_score = _normalize_value(
             math.log(results_count + 1), math.log(1_000_000_000 + 1), invert=True

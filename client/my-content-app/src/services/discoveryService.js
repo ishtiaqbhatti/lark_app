@@ -4,8 +4,14 @@ export const startDiscoveryRun = ({ clientId, runData }) => {
   return apiClient.post(`/api/clients/${clientId}/discovery-runs-async`, runData);
 };
 
-export const getDiscoveryRuns = (clientId, page = 1) => {
-  return apiClient.get(`/api/clients/${clientId}/discovery-runs`, { params: { page } });
+export const getDiscoveryRuns = (clientId, page = 1, filters = {}) => {
+  const params = {
+    page,
+    search_query: filters.searchQuery || undefined,
+    date_range_start: filters.dateRange ? filters.dateRange[0] : undefined,
+    date_range_end: filters.dateRange ? filters.dateRange[1] : undefined,
+  };
+  return apiClient.get(`/api/clients/${clientId}/discovery-runs`, { params });
 };
 
 export const estimateCost = ({ clientId, seed_keywords, signal }) => {
