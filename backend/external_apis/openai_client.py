@@ -25,6 +25,8 @@ class OpenAIClientWrapper:
         pricing = {
             "gpt-4o": {"input": 5.00, "output": 15.00},
             "gpt-3.5-turbo": {"input": 0.50, "output": 1.50},
+            "gpt-5-mini": {"input": 0.250, "output": 2.000},
+            "gpt-5-nano": {"input": 0.050, "output": 0.400},
         }
         model_pricing = pricing.get(
             model, pricing["gpt-4o"]
@@ -45,15 +47,14 @@ class OpenAIClientWrapper:
         schema: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
         temperature: float = 0.7,
-        max_completion_tokens: int = 4096,
+        max_completion_tokens: int = 64000,
         retries: int = 3,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
         Makes a robust OpenAI chat completion call, optionally enforcing JSON output
         and calculating the cost.
         """
-        if model is None:
-            model = self.client_cfg.get('default_model', 'gpt-5-nano')
+        model = 'gpt-5-mini'  # Override to always use gpt-5-mini
         
         self.latest_cost = 0.0
         for attempt in range(retries):

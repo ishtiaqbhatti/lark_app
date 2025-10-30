@@ -43,6 +43,6 @@ export const getOpportunities = (clientId, { page = 1, limit = 50, status = 'qua
 };
 
 export const getDiscoveryRunById = async (runId) => {
-  const response = await apiClient.get(`/discovery/runs/${runId}`);
+  const response = await apiClient.get(`/api/discovery-runs/${runId}`);
   return response;
 };

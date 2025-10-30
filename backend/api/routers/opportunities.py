@@ -37,7 +37,7 @@ class ContentFeedbackRequest(BaseModel):
 
 
 @router.get(
-    "/clients/{client_id}/opportunities/summary", response_model=OpportunityListResponse
+    "/clients/{client_id}/opportunities", response_model=OpportunityListResponse
 )
 async def get_all_opportunities_summary_endpoint(
     client_id: str,

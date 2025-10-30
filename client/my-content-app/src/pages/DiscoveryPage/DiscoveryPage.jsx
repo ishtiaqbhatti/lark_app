@@ -43,33 +43,26 @@ const DiscoveryPage = () => {
   return (
     <Layout style={{ padding: '24px' }}>
       <Content>
-        <Title level={2}>Keyword Discovery</Title>
-        <Card>
-          <DiscoveryForm
-            isSubmitting={startRunMutation.isLoading}
-            onSubmit={({ runData }) => {
-              startRunMutation.mutate({ clientId, runData }, {
-                onSuccess: (data) => {
-                  const newRun = data.run_summary;
-                  message.success(`Discovery run #${newRun.id} started successfully!`);
-                  navigate(`/discovery/run/${newRun.id}`);
-                },
-                onError: (err) => {
-                  message.error(`Failed to start discovery run: ${err.message}`);
-                }
-              });
-            }}
+        <Spin spinning={startRunMutation.isLoading} tip="Starting discovery run..." size="large">
+          <Title level={2}>Keyword Discovery</Title>
+          <Card>
+            <DiscoveryForm
+              isSubmitting={startRunMutation.isLoading}
+              onSubmit={({ runData }) => {
+                startRunMutation.mutate({ clientId, runData });
+              }}
+            />
+          </Card>
+
+          <Divider />
+
+          <DiscoveryHistory
+              runs={runs}
+              isLoading={startRunMutation.isLoading || rerunMutation.isLoading}
+              onRerun={handleRerun}
+              isRerunning={rerunMutation.isLoading}
           />
-        </Card>
-
-        <Divider />
-
-        <DiscoveryHistory
-            runs={runs}
-            isLoading={startRunMutation.isLoading || rerunMutation.isLoading} 
-            onRerun={handleRerun}
-            isRerunning={rerunMutation.isLoading}
-        />
+        </Spin>
       </Content>
     </Layout>
   );

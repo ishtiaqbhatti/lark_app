@@ -39,7 +39,7 @@ function App() {
             <Route path="/clients" element={<ClientDashboardPage />} />
             <Route path="/opportunities" element={<OpportunitiesPage />} />
             <Route path="/opportunities/:opportunityId" element={<OpportunityDetailPage />} />
-            <Route path="/discovery/run/:runId" element={<RunDetailsPage />} />
+            <Route path="/discovery-run/:runId" element={<RunDetailsPage />} />
             <Route path="/activity-log" element={<ActivityLogPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/discovery" element={<DiscoveryPage />} />

@@ -307,6 +307,26 @@ async def rerun_discovery_run(
         raise HTTPException(status_code=500, detail=f"Failed to start re-run: {e}")
 
 
+@router.get("/discovery-runs/{run_id}")
+async def get_discovery_run_by_id(
+    run_id: int,
+    db: DatabaseManager = Depends(get_db),
+    orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
+):
+    """
+    Retrieves a single discovery run by its ID.
+    """
+    run = db.get_discovery_run_by_id(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Discovery run not found.")
+    if run["client_id"] != orchestrator.client_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to access this discovery run.",
+        )
+    return run
+
+
 @router.get("/discovery-runs/{run_id}/keywords")
 async def get_run_keywords(
     run_id: int,

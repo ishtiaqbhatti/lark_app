@@ -78,7 +78,7 @@ const MainLayout = () => {
     const [type, id] = e.key.split('-');
     setGlobalSearchResults([]); // Clear search results after selection
     if (type === 'opportunity') navigate(`/opportunities/${id}`);
-    if (type === 'discovery_run') navigate(`/discovery/run/${id}`);
+    if (type === 'discovery_run') navigate(`/discovery-run/${id}`);
     // Add more navigation logic for other types if needed
   };
 

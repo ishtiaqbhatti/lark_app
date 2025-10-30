@@ -1,7 +1,7 @@
 import apiClient from './apiClient';
 
 export const getOpportunities = (clientId, params) => {
-  return apiClient.get(`/api/clients/${clientId}/opportunities/summary`, { params });
+  return apiClient.get(`/api/clients/${clientId}/opportunities`, { params });
 };
 
 export const getDashboardStats = (clientId) => {

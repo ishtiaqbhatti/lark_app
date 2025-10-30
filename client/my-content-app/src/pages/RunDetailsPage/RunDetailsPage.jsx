@@ -3,29 +3,33 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery } from 'react-query';
 import { Layout, Spin, Alert, Typography, Progress, Card, Descriptions, Tag, Button } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import { getDiscoveryRunById } from '../../services/discoveryService'; // Adjust import path as needed
-// import OpportunityTable from '../../components/OpportunityTable'; // Assuming a reusable table component exists
+import { getDiscoveryRunById, getKeywordsForRun } from '../../services/discoveryService';
+import OpportunityTable from '../../components/OpportunityTable';
 
 const { Content } = Layout;
-const { Title, Paragraph } = Typography;
+const { Title } = Typography;
 
 const RunDetailsPage = () => {
   const { runId } = useParams();
 
-  const { data: run, isLoading, isError, error } = useQuery(
+  const { data: run, isLoading: isLoadingRun, isError, error } = useQuery(
     ['discoveryRun', runId],
     () => getDiscoveryRunById(runId),
     {
-      // Poll for updates every 5 seconds if the run is still in progress
-      refetchInterval: (data) => {
-        const inProgress = data?.status === 'PENDING' || data?.status === 'IN_PROGRESS';
-        return inProgress ? 5000 : false;
-      },
+      refetchInterval: (data) => data?.status === 'running' ? 5000 : false,
       refetchOnWindowFocus: false,
     }
   );
 
-  if (isLoading) {
+  const { data: opportunities, isLoading: isLoadingOpportunities } = useQuery(
+    ['discoveryRunOpportunities', runId],
+    () => getKeywordsForRun(runId),
+    {
+      enabled: !!run && run.status === 'completed',
+    }
+  );
+
+  if (isLoadingRun) {
     return <Spin tip="Loading run details..." style={{ display: 'block', marginTop: '50px' }} />;
   }
 
@@ -35,10 +39,9 @@ const RunDetailsPage = () => {
 
   const getStatusTag = (status) => {
     switch (status) {
-      case 'COMPLETED': return <Tag color="success">Completed</Tag>;
-      case 'FAILED': return <Tag color="error">Failed</Tag>;
-      case 'IN_PROGRESS': return <Tag color="processing">In Progress</Tag>;
-      case 'PENDING': return <Tag color="gold">Pending</Tag>;
+      case 'completed': return <Tag color="success">Completed</Tag>;
+      case 'failed': return <Tag color="error">Failed</Tag>;
+      case 'running': return <Tag color="processing">In Progress</Tag>;
       default: return <Tag>{status}</Tag>;
     }
   };
@@ -55,24 +58,17 @@ const RunDetailsPage = () => {
             <Descriptions.Item label="Run ID">{run.id}</Descriptions.Item>
             <Descriptions.Item label="Status">{getStatusTag(run.status)}</Descriptions.Item>
             <Descriptions.Item label="Seed Keyword">{run.parameters?.seed_keywords?.join(', ')}</Descriptions.Item>
-            <Descriptions.Item label="Created At">{new Date(run.created_at).toLocaleString()}</Descriptions.Item>
+            <Descriptions.Item label="Created At">{new Date(run.start_time).toLocaleString()}</Descriptions.Item>
           </Descriptions>
-          {run.status === 'IN_PROGRESS' && (
-            <div style={{ marginTop: '16px' }}>
-              <Paragraph>{run.progress_message || 'Processing...'}</Paragraph>
-              <Progress percent={run.progress_percent || 0} />
-            </div>
-          )}
         </Card>
 
-        {run.status === 'COMPLETED' && (
+        {run.status === 'completed' && (
           <Card title="Discovered Opportunities">
-            {/* Assuming you have a component to display opportunities */}
-            {/* <OpportunityTable opportunities={run.opportunities} /> */}
+            <OpportunityTable opportunities={opportunities} isLoading={isLoadingOpportunities} />
           </Card>
         )}
 
-        {run.status === 'FAILED' && (
+        {run.status === 'failed' && (
           <Alert message="Run Failed" description={run.error_message || 'An unknown error occurred.'} type="error" showIcon />
         )}
       </Content>

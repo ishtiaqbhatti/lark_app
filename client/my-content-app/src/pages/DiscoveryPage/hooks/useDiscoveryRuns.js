@@ -18,35 +18,62 @@ export const useDiscoveryRuns = () => {
   // Query to fetch discovery run history
   const {
     data,
-    isLoading, // True on initial fetch
-    isError, // True if query failed
-    error, // Error object
+    isLoading,
+    isError,
+    error,
+    refetch, // Get the refetch function
   } = useQuery(
-    ['discoveryRuns', clientId, page], // Unique query key, depends on clientId and page
-    () => getDiscoveryRuns(clientId, page), // Function to fetch data
+    ['discoveryRuns', clientId, page],
+    () => getDiscoveryRuns(clientId, page),
     {
-      enabled: !!clientId, // Only run query if clientId is available
-      keepPreviousData: true, // Keep previous data while fetching new page
+      enabled: !!clientId,
+      keepPreviousData: true,
     }
   );
 
   // Poll for updates on running jobs
   useEffect(() => {
-    const runningJobs = data?.items?.filter(run => run.status === 'running' && run.job_id);
-    if (runningJobs && runningJobs.length > 0) {
-      const interval = setInterval(() => {
-        runningJobs.forEach(run => {
-          getJobStatus(run.job_id).then(job => {
-            if (job.status === 'completed' || job.status === 'failed') {
-              queryClient.invalidateQueries(['discoveryRuns', clientId]);
-            }
-          });
-        });
-      }, 5000); // Poll every 5s
+    let intervalId;
 
-      return () => clearInterval(interval);
+    const checkRunningJobs = async () => {
+      const currentRuns = queryClient.getQueryData(['discoveryRuns', clientId, page]);
+      const runningRuns = currentRuns?.items?.filter(run => run.status === 'running' && run.job_id);
+
+      if (!runningRuns || runningRuns.length === 0) {
+        clearInterval(intervalId);
+        intervalId = null;
+        return;
+      }
+
+      let shouldRefetch = false;
+      const statusChecks = runningRuns.map(run => getJobStatus(run.job_id));
+
+      try {
+        const jobStatuses = await Promise.all(statusChecks);
+        if (jobStatuses.some(job => job.status === 'completed' || job.status === 'failed')) {
+          shouldRefetch = true;
+        }
+      } catch (error) {
+        console.error("Error polling job statuses:", error);
+      }
+
+      if (shouldRefetch) {
+        queryClient.invalidateQueries(['discoveryRuns', clientId]);
+      }
+    };
+
+    // Start polling only if there are running jobs initially
+    const initialRunningRuns = data?.items?.filter(run => run.status === 'running' && run.job_id);
+    if (initialRunningRuns && initialRunningRuns.length > 0 && !intervalId) {
+      intervalId = setInterval(checkRunningJobs, 8000); // Poll every 8 seconds
     }
-  }, [data, clientId, queryClient]);
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [data, clientId, queryClient, page]); // Add 'page' to dependencies
 
   // Mutation for starting a new discovery run
   const startRunMutation = useMutation(startDiscoveryRun, {

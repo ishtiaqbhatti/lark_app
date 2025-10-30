@@ -469,7 +469,7 @@ class DatabaseManager:
                     keyword_id = cursor.lastrowid
 
                 cursor.execute(
-                    "SELECT id FROM opportunities WHERE client_id = ? AND keyword_id = ?",
+                    "SELECT id, metrics_history FROM opportunities WHERE client_id = ? AND keyword_id = ?",
                     (client_id, keyword_id),
                 )
                 opportunity_row = cursor.fetchone()
