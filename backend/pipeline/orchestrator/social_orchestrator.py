@@ -57,5 +57,6 @@ class SocialOrchestrator:
             self.client_id,
             target_function=self._run_social_posts_regeneration_background,
             args=(opportunity_id,),
+            opportunity_id=opportunity_id
         )
         return job_id

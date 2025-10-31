@@ -21,7 +21,8 @@ def export_database_to_json():
     """
     print("Starting database export...")
     try:
-        config_manager = ConfigManager()
+        settings_file_path = os.path.join(os.path.dirname(__file__), "app_config", "settings.ini")
+        config_manager = ConfigManager(settings_path=settings_file_path)
         db_manager = DatabaseManager(cfg_manager=config_manager)
         
         print("Fetching all opportunities from the database...")

@@ -108,6 +108,7 @@ class ImageOrchestrator:
             self.client_id,
             target_function=self._run_single_image_generation_background,
             args=(opportunity_id, original_prompt, new_prompt),
+            opportunity_id=opportunity_id
         )
         return job_id
 
@@ -169,5 +170,6 @@ class ImageOrchestrator:
             self.client_id,
             target_function=self._run_featured_image_regeneration_background,
             args=(opportunity_id, prompt),
+            opportunity_id=opportunity_id
         )
         return job_id

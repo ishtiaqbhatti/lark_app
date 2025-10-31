@@ -25,11 +25,11 @@ class JobManager:
         # self.lock = threading.Lock()
 
     def create_job(
-        self, client_id: str, target_function: Callable, args: tuple = (), kwargs: dict = {}
+        self, client_id: str, target_function: Callable, args: tuple = (), kwargs: dict = {}, opportunity_id: Optional[int] = None
     ) -> str:
         """
-        Creates a new job, saves its initial state to the DB, starts it in a
-        separate thread, and returns its ID.
+        Creates a new job, saves its initial state, optionally links it to an opportunity,
+        starts it in a thread, and returns its ID.
         """
         job_id = str(uuid.uuid4())
         job_info = {
@@ -44,8 +44,11 @@ class JobManager:
             "function_name": target_function.__name__,
         }
 
-        # MODIFIED: Save job to DB instead of in-memory dict
         self.db_manager.update_job(job_info)
+
+        # If an opportunity_id is provided, link it in the database
+        if opportunity_id:
+            self.db_manager.update_opportunity_latest_job_id(opportunity_id, job_id)
 
         logger.info(f"Job {job_id} created for client {client_id} and function {target_function.__name__}")
         thread = threading.Thread(

@@ -54,10 +54,14 @@ class SectionalArticleGenerator:
         """
         Generates a full article by generating its sections in parallel and then assembling them.
         """
+        if opportunity is None:
+            self.logger.error("generate_full_article received a None opportunity.")
+            return {}, 0.0
+
         total_cost = 0.0
         blueprint = opportunity.get("blueprint", {})
-        brief = blueprint.get("ai_content_brief", {})
-        outline_h2s = brief.get("mandatory_sections", [])
+        content_intelligence = blueprint.get("content_intelligence", {})
+        article_structure = content_intelligence.get("article_structure", [])
         
         generated_content = {}
 
@@ -69,16 +73,22 @@ class SectionalArticleGenerator:
             future_to_section[intro_future] = "introduction"
 
             # 2. Submit Body Section tasks
-            for i, section_title in enumerate(outline_h2s):
-                previous_title = outline_h2s[i-1] if i > 0 else "Introduction"
-                next_title = outline_h2s[i+1] if i < len(outline_h2s) - 1 else "Conclusion"
+            body_sections = [s for s in article_structure if s.get("h2", "").lower().strip() not in ["introduction", "conclusion"]]
+            
+            for i, section in enumerate(body_sections):
+                section_title = section.get("h2")
+                if not section_title:
+                    continue
+
+                sub_points = section.get("h3s", [])
+                previous_title = body_sections[i-1].get("h2") if i > 0 else "Introduction"
+                next_title = body_sections[i+1].get("h2") if i < len(body_sections) - 1 else "Conclusion"
                 
-                # Assuming sub_points are not explicitly defined per section in the brief for now
                 section_future = executor.submit(
                     self._generate_parallel_section,
                     opportunity,
                     section_title,
-                    [], 
+                    sub_points, 
                     previous_title,
                     next_title
                 )
@@ -97,9 +107,11 @@ class SectionalArticleGenerator:
 
         # 4. Assemble the article body in the correct order
         article_body_html = generated_content.get("introduction", "")
-        for section_title in outline_h2s:
-            article_body_html += f"\n<h2>{section_title}</h2>\n"
-            article_body_html += generated_content.get(section_title, "")
+        for section in body_sections:
+            section_title = section.get("h2")
+            if section_title:
+                article_body_html += f"\n<h2>{section_title}</h2>\n"
+                article_body_html += generated_content.get(section_title, "")
 
         # 5. Generate Conclusion sequentially after the main body is assembled
         conclusion_html, cost = self.generate_conclusion(opportunity, article_body_html)

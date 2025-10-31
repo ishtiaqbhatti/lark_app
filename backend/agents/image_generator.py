@@ -140,6 +140,10 @@ class ImageGenerator:
         """
         Finds and saves the featured image for the article from Pexels.
         """
+        if opportunity is None:
+            self.logger.error("generate_featured_image received a None opportunity.")
+            return None, 0.0
+        
         if not self.pexels_client:
             self.logger.warning(
                 "Pexels client not initialized. Cannot generate featured image."
@@ -188,9 +192,8 @@ class ImageGenerator:
             return None, cost
 
         # Add text overlay
-        meta_title = opportunity.get("ai_content", {}).get(
-            "meta_title", opportunity["keyword"]
-        )
+        ai_content = opportunity.get("ai_content") or {}
+        meta_title = ai_content.get("meta_title", opportunity["keyword"])
         local_path = self._add_text_overlay(local_path, meta_title)
 
         self.logger.info(

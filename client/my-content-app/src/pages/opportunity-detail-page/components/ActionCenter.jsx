@@ -76,6 +76,19 @@ const ActionCenter = ({ status, opportunityId, overrides, refetch }) => {
     }
   );
 
+  const { mutate: generateBlueprintMutation, isLoading: isGeneratingBlueprint } = useMutation(
+    () => runAnalysis(opportunityId, null), // Using runAnalysis as it seems to be the equivalent of generating a blueprint
+    {
+      onSuccess: (data) => {
+        showNotification('success', 'Blueprint Generation Started', `Blueprint generation job queued. Job ID: ${data.job_id}`);
+        refetch();
+        queryClient.invalidateQueries('opportunities');
+        queryClient.invalidateQueries('dashboardStats');
+      },
+      onError: (error) => showNotification('error', 'Blueprint Generation Failed', error.message),
+    }
+  );
+
   const showRejectConfirm = () => {
     confirm({
       title: 'Are you sure you want to reject this opportunity?',
@@ -89,7 +102,7 @@ const ActionCenter = ({ status, opportunityId, overrides, refetch }) => {
   };
 
   const renderActions = () => {
-    const isLoading = isApproving || isGenerating || isStartingWorkflow || isRejecting || isStartingAnalysis;
+    const isLoading = isApproving || isGenerating || isStartingWorkflow || isRejecting || isStartingAnalysis || isGeneratingBlueprint;
 
     switch (status) {
       case 'review':
@@ -105,9 +118,14 @@ const ActionCenter = ({ status, opportunityId, overrides, refetch }) => {
         );
       case 'validated':
         return (
-          <Button type="primary" icon={<ExperimentOutlined />} onClick={() => startAnalysisMutation()} loading={isStartingAnalysis} disabled={isLoading}>
-            Run Full Analysis
-          </Button>
+          <Space>
+            <Button type="primary" icon={<ExperimentOutlined />} onClick={() => startAnalysisMutation()} loading={isStartingAnalysis} disabled={isLoading}>
+              Run Full Analysis
+            </Button>
+            <Button icon={<ExperimentOutlined />} onClick={() => generateBlueprintMutation()} loading={isGeneratingBlueprint} disabled={isLoading}>
+              Generate Blueprint
+            </Button>
+          </Space>
         );
       case 'analyzed':
         return (

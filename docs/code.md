@@ -11762,9 +11762,6 @@ class ContentOrchestrator:
         Public method to initiate content generation asynchronously.
         Returns a job_id.
         """
-        self.logger.info(
-            f"--- Orchestrator: Initiating Full Content Generation for Opportunity ID: {opportunity_id} (Async) ---"
-        )
         job_id = self.job_manager.create_job(
             target_function=self._run_full_content_generation_background,
             args=(opportunity_id, overrides),

@@ -80,6 +80,7 @@ class WorkflowOrchestrator:
             self.client_id,
             target_function=self._run_full_auto_workflow_background,
             args=(opportunity_id, override_validation),
+            opportunity_id=opportunity_id
         )
         return job_id
 
@@ -249,5 +250,6 @@ class WorkflowOrchestrator:
             self.client_id,
             target_function=self._run_content_refresh_workflow_background,
             args=(opportunity_id,),
+            opportunity_id=opportunity_id
         )
         return job_id

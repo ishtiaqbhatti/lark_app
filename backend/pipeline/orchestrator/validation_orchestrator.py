@@ -112,6 +112,7 @@ class ValidationOrchestrator:
         )
         job_id = self.job_manager.create_job(
             self.client_id,
-            target_function=self._run_validation_background, args=(opportunity_id,)
+            target_function=self._run_validation_background, args=(opportunity_id,),
+            opportunity_id=opportunity_id
         )
         return job_id

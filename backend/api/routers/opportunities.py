@@ -190,7 +190,7 @@ async def get_opportunity_by_id_endpoint(
             detail="You do not have permission to access this opportunity.",
         )
 
-    logger.info(f"Retrieved opportunity from DB: {opportunity}")
+    
     return opportunity
 
 

@@ -257,8 +257,6 @@ class DatabaseManager:
                     except json.JSONDecodeError:
                         final_item[key] = None
             
-            self.logger.info(f"Before backfill: {final_item}")
-            self.logger.info(f"Before backfill: {final_item}")
             # Backward compatibility: If top-level fields are null, pull from full_data
             full_data = final_item.get('full_data') or {}
             if isinstance(full_data, str):
@@ -272,8 +270,6 @@ class DatabaseManager:
             
             if final_item.get('keyword_difficulty') is None:
                 final_item['keyword_difficulty'] = (full_data.get('keyword_properties') or {}).get('keyword_difficulty')
-            self.logger.info(f"After backfill: {final_item}")
-            self.logger.info(f"After backfill: {final_item}")
 
             # Reconstruct nested objects for any part of the app that might still use them
             final_item['keyword_info'] = final_item.get('keyword_info') or {}
@@ -1947,6 +1943,16 @@ class DatabaseManager:
                 )
             else:
                 self.logger.info("No stale jobs found.")
+
+    def update_opportunity_latest_job_id(self, opportunity_id: int, job_id: str):
+        """Updates the latest_job_id for a specific opportunity."""
+        self.logger.info(f"Opportunity {opportunity_id}: Linking to new job ID {job_id}.")
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                "UPDATE opportunities SET latest_job_id = ? WHERE id = ?",
+                (job_id, opportunity_id),
+            )
 
         def override_disqualification(self, opportunity_id: int) -> bool:
             """Manually overrides a failed qualification, resetting status to pending."""

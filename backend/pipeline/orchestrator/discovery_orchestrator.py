@@ -164,9 +164,6 @@ class DiscoveryOrchestrator:
         Public method to initiate a discovery run asynchronously.
         Returns a job_id.
         """
-        self.logger.info(
-            f"--- Orchestrator: Initiating Full Discovery & Qualification for Run ID: {run_id} (Async) ---"
-        )
         job_id = self.job_manager.create_job(
             self.client_id,
             target_function=self._run_discovery_background,

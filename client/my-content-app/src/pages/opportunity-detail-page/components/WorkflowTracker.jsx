@@ -18,18 +18,20 @@ const WorkflowTracker = ({ opportunity }) => {
     ['jobStatus', latest_job_id],
     () => getJobStatus(latest_job_id),
     {
-      enabled: !!latest_job_id && (!jobStatus || (jobStatus.status !== 'completed' && jobStatus.status !== 'failed')),
-      refetchInterval: 3000, // Poll every 3 seconds for faster updates
+      enabled: !!latest_job_id,
+      refetchInterval: (data) => {
+        const status = data?.status;
+        return (status === 'completed' || status === 'failed' || status === 'paused') ? false : 3000;
+      },
       onSuccess: (data) => {
         if (data?.status === 'completed' || data?.status === 'failed' || data?.status === 'paused') {
-          // Invalidate queries to refetch the main opportunity data for the page
           queryClient.invalidateQueries(['opportunity', opportunity.id]);
         }
         
         if (data?.status === 'completed' && data.result?.redirect_url) {
           setTimeout(() => {
             navigate(data.result.redirect_url);
-          }, 1500); // Delay for user to see the final success state
+          }, 1500);
         }
       },
     }

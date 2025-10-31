@@ -213,5 +213,6 @@ class AnalysisOrchestrator:
             self.client_id,
             target_function=self._run_analysis_background,
             args=(opportunity_id, selected_competitor_urls),
+            opportunity_id=opportunity_id
         )
         return job_id
