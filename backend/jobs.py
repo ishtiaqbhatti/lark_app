@@ -25,7 +25,7 @@ class JobManager:
         # self.lock = threading.Lock()
 
     def create_job(
-        self, target_function: Callable, args: tuple = (), kwargs: dict = {}
+        self, client_id: str, target_function: Callable, args: tuple = (), kwargs: dict = {}
     ) -> str:
         """
         Creates a new job, saves its initial state to the DB, starts it in a
@@ -34,6 +34,7 @@ class JobManager:
         job_id = str(uuid.uuid4())
         job_info = {
             "id": job_id,
+            "client_id": client_id,
             "status": "pending",
             "progress": 0,
             "result": None,
@@ -46,7 +47,7 @@ class JobManager:
         # MODIFIED: Save job to DB instead of in-memory dict
         self.db_manager.update_job(job_info)
 
-        logger.info(f"Job {job_id} created for function {target_function.__name__}")
+        logger.info(f"Job {job_id} created for client {client_id} and function {target_function.__name__}")
         thread = threading.Thread(
             target=self._run_job, args=(job_id, target_function, args, kwargs)
         )

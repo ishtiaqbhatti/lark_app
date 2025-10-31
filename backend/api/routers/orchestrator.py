@@ -691,29 +691,45 @@ async def approve_analysis_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post(
-    "/orchestrator/reject-opportunity/{opportunity_id}", response_model=Dict[str, str]
-)
-async def reject_opportunity_endpoint(
-    opportunity_id: int,
-    db: DatabaseManager = Depends(get_db),
-):
-    """Endpoint to reject the opportunity and set status to 'rejected'"""
-    try:
-        # This is a direct status update, no job manager needed for rejection itself
-        db.update_opportunity_workflow_state(
-            opportunity_id,
-            "rejected_by_user",
-            "rejected",
-            error_message="Opportunity rejected by user.",
-        )
-        return {"message": "Opportunity rejected."}
-    except Exception as e:
-        logger.error(
-            f"Failed to reject opportunity {opportunity_id}: {e}", exc_info=True
-        )
-        raise HTTPException(status_code=500, detail=str(e))
-
+    @router.post(
+        "/orchestrator/reject-opportunity/{opportunity_id}", response_model=Dict[str, str]
+    )
+    async def reject_opportunity_endpoint(
+        opportunity_id: int,
+        db: DatabaseManager = Depends(get_db),
+        jm: JobManager = Depends(get_job_manager),
+        orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
+    ):
+        """Endpoint to reject the opportunity and cancel any active job."""
+        try:
+            opportunity = db.get_opportunity_by_id(opportunity_id)
+            if not opportunity:
+                raise HTTPException(status_code=404, detail="Opportunity not found.")
+            
+            if opportunity["client_id"] != orchestrator.client_id:
+                raise HTTPException(status_code=403, detail="You do not have permission to access this opportunity.")
+    
+            job_id = opportunity.get("latest_job_id")
+            if job_id:
+                job_status = jm.get_job_status(job_id)
+                if job_status and job_status.get("status") in ["running", "pending", "paused"]:
+                    jm.cancel_job(job_id)
+                    logger.info(f"Cancelled running job {job_id} for rejected opportunity {opportunity_id}.")
+    
+            db.update_opportunity_workflow_state(
+                opportunity_id,
+                "rejected_by_user",
+                "rejected",
+                error_message="Opportunity rejected by user.",
+            )
+            return {"message": "Opportunity rejected and any active job was cancelled."}
+        except HTTPException as h:
+            raise h
+        except Exception as e:
+            logger.error(
+                f"Failed to reject opportunity {opportunity_id}: {e}", exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(e))
 
 class SocialMediaStatusUpdateRequest(BaseModel):
     new_status: str

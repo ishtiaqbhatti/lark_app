@@ -1,6 +1,7 @@
 # api/routers/client_settings.py
 # NEW FILE
-from fastapi import APIRouter, Depends, HTTPException
+import bleach  # ADD THIS LINE
+import json
 from typing import Dict
 from data_access.database_manager import DatabaseManager
 from ..dependencies import get_db, get_orchestrator
@@ -42,7 +43,11 @@ async def update_client_settings_endpoint(
             detail="You do not have permission to access this client's resources.",
         )
     try:
-        db.update_client_settings(client_id, settings.dict())
+        settings_dict = settings.dict()
+        for key in ['brand_tone', 'target_audience', 'terms_to_avoid', 'client_knowledge_base', 'expert_persona']:
+            if key in settings_dict and settings_dict[key]:
+                settings_dict[key] = bleach.clean(settings_dict[key], tags=[], strip=True)
+        db.update_client_settings(client_id, settings_dict)
         return {"message": "Settings updated successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

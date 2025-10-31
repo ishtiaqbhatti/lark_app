@@ -235,143 +235,57 @@ class DatabaseManager:
             self._close_conn()  # Ensure connection is closed after migrations
 
     def _deserialize_rows(self, rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
-        """Deserializes JSON strings from database rows into a clean dictionary."""
+        """Deserializes JSON strings from database rows into a clean dictionary, prioritizing top-level columns."""
         results = []
 
         json_keys = [
-            "blueprint_data",
-            "ai_content_json",
-            "in_article_images_data",
-            "social_media_posts_json",
-            "final_package_json",
-            "wordpress_payload_json",
-            "keyword_info",
-            "keyword_properties",
-            "search_intent_info",
-            "serp_overview",
-            "score_breakdown",
-            "keyword_info_normalized_with_bing",
-            "keyword_info_normalized_with_clickstream",
-            "monthly_searches",
-            "full_data",
-            "search_volume_trend_json",
-            "competitor_social_media_tags_json",
-            "competitor_page_timing_json",  # ADDED THIS LINE
+            "blueprint_data", "ai_content_json", "in_article_images_data",
+            "social_media_posts_json", "final_package_json", "wordpress_payload_json",
+            "score_breakdown", "full_data", "search_volume_trend_json",
+            "competitor_social_media_tags_json", "competitor_page_timing_json",
+            "keyword_info", "keyword_properties", "search_intent_info", "serp_overview",
+            "metrics_history", "related_keywords", "keyword_categories"
         ]
 
         for row in rows:
             final_item = dict(row)
 
-            # Deserialize all JSON fields first
             for key in json_keys:
                 if key in final_item and isinstance(final_item[key], str):
                     try:
                         final_item[key] = json.loads(final_item[key])
                     except json.JSONDecodeError:
-                        self.logger.warning(
-                            f"Failed to parse JSON for key '{key}' on row ID {final_item.get('id')}. Leaving as raw string."
-                        )
-
-            # --- Data Unification and Renaming (with added safety checks and handling promoted columns) ---
-            # Ensure direct columns are prioritized; if null, try to extract from old JSON blobs for backward compatibility
-            if final_item.get("main_intent") is None and isinstance(
-                final_item.get("search_intent_info"), dict
-            ):
-                final_item["main_intent"] = final_item["search_intent_info"].get(
-                    "main_intent"
-                )
-            if final_item.get("cpc") is None and isinstance(
-                final_item.get("keyword_info"), dict
-            ):
-                final_item["cpc"] = float(final_item["keyword_info"].get("cpc") or 0.0)
-            if final_item.get("competition") is None and isinstance(
-                final_item.get("keyword_info"), dict
-            ):
-                final_item["competition"] = float(
-                    final_item["keyword_info"].get("competition") or 0.0
-                )
-            if final_item.get("search_volume") is None and isinstance(
-                final_item.get("keyword_info"), dict
-            ):
-                final_item["search_volume"] = int(
-                    final_item["keyword_info"].get("search_volume") or 0
-                )
-            if final_item.get("keyword_difficulty") is None and isinstance(
-                final_item.get("keyword_properties"), dict
-            ):
-                final_item["keyword_difficulty"] = int(
-                    final_item["keyword_properties"].get("keyword_difficulty") or 0
-                )
-
-            # Deserialize search_volume_trend_json if present in new column
-            if isinstance(final_item.get("search_volume_trend_json"), str):
+                        final_item[key] = None
+            
+            self.logger.info(f"Before backfill: {final_item}")
+            self.logger.info(f"Before backfill: {final_item}")
+            # Backward compatibility: If top-level fields are null, pull from full_data
+            full_data = final_item.get('full_data') or {}
+            if isinstance(full_data, str):
                 try:
-                    final_item["search_volume_trend"] = json.loads(
-                        final_item["search_volume_trend_json"]
-                    )
+                    full_data = json.loads(full_data)
                 except json.JSONDecodeError:
-                    self.logger.warning(
-                        f"Failed to parse search_volume_trend_json for row ID {final_item.get('id')}. Resetting."
-                    )
-                    final_item["search_volume_trend"] = {}
-            # Fallback to old keyword_info if new column is empty
-            elif isinstance(final_item.get("keyword_info"), dict):
-                final_item["search_volume_trend"] = final_item["keyword_info"].get(
-                    "search_volume_trend"
-                )
+                    full_data = {}
 
-            # Deserialize competitor_social_media_tags_json
-            if isinstance(final_item.get("competitor_social_media_tags_json"), str):
-                try:
-                    final_item["competitor_social_media_tags"] = json.loads(
-                        final_item["competitor_social_media_tags_json"]
-                    )
-                except json.JSONDecodeError:
-                    self.logger.warning(
-                        f"Failed to parse competitor_social_media_tags_json for row ID {final_item.get('id')}. Resetting."
-                    )
-                    final_item["competitor_social_media_tags"] = {}
+            if final_item.get('search_volume') is None:
+                final_item['search_volume'] = (full_data.get('keyword_info') or {}).get('search_volume')
+            
+            if final_item.get('keyword_difficulty') is None:
+                final_item['keyword_difficulty'] = (full_data.get('keyword_properties') or {}).get('keyword_difficulty')
+            self.logger.info(f"After backfill: {final_item}")
+            self.logger.info(f"After backfill: {final_item}")
 
-            # Deserialize competitor_page_timing_json
-            if isinstance(final_item.get("competitor_page_timing_json"), str):
-                try:
-                    final_item["competitor_page_timing"] = json.loads(
-                        final_item["competitor_page_timing_json"]
-                    )
-                except json.JSONDecodeError:
-                    self.logger.warning(
-                        f"Failed to parse competitor_page_timing_json for row ID {final_item.get('id')}. Resetting."
-                    )
-                    final_item["competitor_page_timing"] = {}
-
-            # Ensure keyword_properties is a dict before assigning to it (for `intent` field that might be manually added)
-            if not isinstance(final_item.get("keyword_properties"), dict):
-                final_item["keyword_properties"] = {}
-            if final_item.get("main_intent") and isinstance(
-                final_item.get("keyword_properties"), dict
-            ):
-                final_item["keyword_properties"]["intent"] = final_item["main_intent"]
-
-            # Simplify monthly_searches if stored as JSON string directly
-            if isinstance(
-                final_item.get("monthly_searches_json"), str
-            ):  # This is from Task 1.2
-                try:
-                    final_item["monthly_searches"] = json.loads(
-                        final_item["monthly_searches_json"]
-                    )
-                except json.JSONDecodeError:
-                    self.logger.warning(
-                        f"Failed to parse monthly_searches_json for row ID {final_item.get('id')}. Resetting."
-                    )
-                    final_item["monthly_searches"] = []
-            # Fallback to old keyword_info if new column is empty
-            elif isinstance(
-                final_item.get("keyword_info"), dict
-            ):  # This is the old way, still in place for historical data
-                final_item["monthly_searches"] = final_item["keyword_info"].get(
-                    "monthly_searches"
-                )
+            # Reconstruct nested objects for any part of the app that might still use them
+            final_item['keyword_info'] = final_item.get('keyword_info') or {}
+            final_item['keyword_properties'] = final_item.get('keyword_properties') or {}
+            final_item['search_intent_info'] = final_item.get('search_intent_info') or {}
+            
+            final_item['keyword_info']['search_volume'] = final_item.get('search_volume')
+            final_item['keyword_info']['cpc'] = final_item.get('cpc')
+            final_item['keyword_info']['competition'] = final_item.get('competition')
+            
+            final_item['keyword_properties']['keyword_difficulty'] = final_item.get('keyword_difficulty')
+            final_item['search_intent_info']['main_intent'] = final_item.get('main_intent')
 
             if "blueprint_data" in final_item:
                 final_item["blueprint"] = final_item.pop("blueprint_data")
@@ -494,12 +408,14 @@ class DatabaseManager:
                     cursor.execute(
                         """
                         UPDATE opportunities
-                        SET last_seen_at = ?, metrics_history = ?
+                        SET last_seen_at = ?, metrics_history = ?, search_volume = ?, keyword_difficulty = ?
                         WHERE id = ?
                     """,
                         (
                             datetime.now().isoformat(),
                             json.dumps(history),
+                            keyword_info.get("search_volume"),
+                            keyword_properties.get("keyword_difficulty"),
                             opportunity_row["id"],
                         ),
                     )
@@ -556,8 +472,8 @@ class DatabaseManager:
                             full_data,
                             cpc, competition, main_intent, search_volume_trend_json,
                             competitor_social_media_tags_json, competitor_page_timing_json,
-                        social_media_posts_status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        social_media_posts_status, search_volume, keyword_difficulty
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                         (
                             keyword,
@@ -596,6 +512,8 @@ class DatabaseManager:
                             competitor_social_media_tags_json_val,
                             competitor_page_timing_json_val,
                             opp.get("social_media_posts_status", "draft"),
+                            keyword_info.get("search_volume"),
+                            keyword_properties.get("keyword_difficulty"),
                         ),
                     )
 
@@ -670,21 +588,6 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute(final_query, paged_values)
             opportunities = self._deserialize_rows(cursor.fetchall())
-
-        # Manually extract and add search_volume and keyword_difficulty for the frontend
-        for opp in opportunities:
-            try:
-                if opp.get("full_data"):
-                    full_data = opp["full_data"]
-                    opp["search_volume"] = full_data.get("keyword_info", {}).get(
-                        "search_volume"
-                    )
-                    opp["keyword_difficulty"] = full_data.get(
-                        "keyword_properties", {}
-                    ).get("keyword_difficulty")
-            except (KeyError, TypeError):
-                opp["search_volume"] = None
-                opp["keyword_difficulty"] = None
 
         return opportunities, total_count
 
@@ -1592,10 +1495,12 @@ class DatabaseManager:
                 queries.UPDATE_JOB,
                 (
                     job_info["id"],
+                    job_info.get("client_id"),
                     job_info["status"],
                     job_info["progress"],
-                    json.dumps(job_info["result"]) if job_info.get("result") else None,
+                    json.dumps(job_info.get("result")) if job_info.get("result") else None,
                     job_info.get("error"),
+                    job_info.get("function_name"),
                     job_info["started_at"],
                     job_info.get("finished_at"),
                 ),
@@ -1998,6 +1903,22 @@ class DatabaseManager:
             """,
                 (slug,),
             )
+
+    def get_active_jobs_by_client(self, client_id: str) -> List[Dict[str, Any]]:
+        """Retrieves all jobs with 'running' or 'pending' status for a client."""
+        conn = self._get_conn()
+        with conn:
+            cursor = conn.execute(queries.GET_ACTIVE_JOBS_BY_CLIENT, (client_id,))
+            jobs = []
+            for row in cursor.fetchall():
+                job_data = dict(row)
+                if job_data.get("result"):
+                    try:
+                        job_data["result"] = json.loads(job_data["result"])
+                    except json.JSONDecodeError:
+                        job_data["result"] = {"raw_result": job_data["result"]}
+                jobs.append(job_data)
+            return jobs
             row = cursor.fetchone()
             if row:
                 return dict(row)

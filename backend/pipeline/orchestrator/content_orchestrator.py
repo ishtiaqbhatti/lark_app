@@ -71,7 +71,8 @@ class ContentOrchestrator:
             return
 
         if opportunity.get("status") not in ["analyzed", "paused_for_approval"]:
-            error_msg = "Opportunity not ready for content generation."
+            error_msg = f"Invalid state for content generation: '{opportunity.get("status")}'. Must be 'analyzed' or 'paused_for_approval'."
+            self.logger.error(error_msg)
             self.job_manager.update_job_status(job_id, "failed", error=error_msg)
             return
 
@@ -339,6 +340,7 @@ class ContentOrchestrator:
             f"--- Orchestrator: Initiating Full Content Generation for Opportunity ID: {opportunity_id} (Async) ---"
         )
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_full_content_generation_background,
             args=(opportunity_id, overrides),
         )

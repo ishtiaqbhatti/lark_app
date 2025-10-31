@@ -1,35 +1,31 @@
-import React, { createContext, useState, useContext } from 'react';
+import React, { createContext, useContext } from 'react';
+import { useQuery } from 'react-query';
+import { getActiveJobs } from '../services/jobsService';
+import { useClient } from './ClientContext';
 
 const JobContext = createContext();
 
 export const useJobs = () => useContext(JobContext);
 
 export const JobProvider = ({ children }) => {
-  const [activeJobs, setActiveJobs] = useState({});
+  const { clientId } = useClient();
 
-  const startJob = (jobId, message) => {
-    setActiveJobs(prev => ({ ...prev, [jobId]: { status: 'running', message } }));
-  };
+  const { data: activeJobs = [], isLoading: isLoadingJobs } = useQuery(
+    ['activeJobs', clientId],
+    getActiveJobs,
+    {
+      enabled: !!clientId,
+      refetchInterval: (data) =>
+        data?.some((job) => job.status === 'running' || job.status === 'pending')
+          ? 5000 // Poll every 5 seconds if jobs are active
+          : false, // Stop polling if all jobs are done
+    }
+  );
 
-  const updateJob = (jobId, status, message) => {
-    setActiveJobs(prev => {
-      if (!prev[jobId]) return prev;
-      return { ...prev, [jobId]: { ...prev[jobId], status, message } };
-    });
-  };
-
-  const completeJob = (jobId) => {
-    setTimeout(() => {
-      setActiveJobs(prev => {
-        const newJobs = { ...prev };
-        delete newJobs[jobId];
-        return newJobs;
-      });
-    }, 5000); // Remove after 5 seconds
-  };
+  const value = { activeJobs, isLoadingJobs };
 
   return (
-    <JobContext.Provider value={{ activeJobs, startJob, updateJob, completeJob }}>
+    <JobContext.Provider value={value}>
       {children}
     </JobContext.Provider>
   );

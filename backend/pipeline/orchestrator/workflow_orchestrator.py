@@ -21,10 +21,11 @@ class WorkflowOrchestrator:
                 self.job_manager.update_job_progress(job_id, "Validation", "Running validation checks.")
                 validation_result = self.run_validation_phase(opportunity_id)
                 if validation_result.get("status") == "failed":
+                    error_message = validation_result.get("message", "Unknown validation error.")
                     self.logger.warning(
-                        f"Workflow for opportunity {opportunity_id} stopped due to validation failure: {validation_result.get('message')}"
+                        f"Workflow for opportunity {opportunity_id} stopped due to validation failure: {error_message}"
                     )
-                    raise RuntimeError(f"Validation failed: {validation_result.get('message')}")
+                    raise RuntimeError(f"Validation failed: {error_message}")
             else:
                 self.logger.info(
                     f"Validation step skipped for opportunity {opportunity_id} due to override."
@@ -42,7 +43,7 @@ class WorkflowOrchestrator:
                 opportunity_id, selected_competitor_urls=None
             )
             if analysis_result.get("status") == "failed":
-                reason = f"Disqualified during analysis: {analysis_result.get('message')}"
+                reason = analysis_result.get("message", "Unknown analysis error.")
                 self.logger.warning(
                     f"Full auto workflow for {opportunity_id} stopped: {reason}"
                 )
@@ -76,6 +77,7 @@ class WorkflowOrchestrator:
             f"--- Orchestrator: Initiating Full Auto Workflow for Opportunity ID: {opportunity_id} (Async) with override: {override_validation} ---"
         )
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_full_auto_workflow_background,
             args=(opportunity_id, override_validation),
         )
@@ -95,10 +97,11 @@ class WorkflowOrchestrator:
                 self.job_manager.update_job_progress(job_id, "Validation", "Running validation checks.")
                 validation_result = self.run_validation_phase(opportunity_id)
                 if validation_result.get("status") == "failed":
+                    error_message = validation_result.get("message", "Unknown validation error.")
                     self.logger.warning(
-                        f"Automation for opportunity {opportunity_id} stopped due to validation failure: {validation_result.get('message')}"
+                        f"Automation for opportunity {opportunity_id} stopped due to validation failure: {error_message}"
                     )
-                    raise RuntimeError(f"Validation failed: {validation_result.get('message')}")
+                    raise RuntimeError(f"Validation failed: {error_message}")
             else:
                 self.logger.info(
                     f"Validation step skipped for opportunity {opportunity_id} due to override."
@@ -116,7 +119,7 @@ class WorkflowOrchestrator:
                 opportunity_id, selected_competitor_urls=None
             )
             if analysis_result.get("status") == "failed":
-                reason = f"Disqualified during analysis: {analysis_result.get('message')}"
+                reason = analysis_result.get("message", "Unknown analysis error.")
                 self.logger.warning(
                     f"Full automation for {opportunity_id} stopped: {reason}"
                 )
@@ -166,6 +169,7 @@ class WorkflowOrchestrator:
 
         # Create a new job for the content generation part of the workflow
         new_job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_full_content_generation_background,
             args=(opportunity_id, overrides),
         )
@@ -182,7 +186,9 @@ class WorkflowOrchestrator:
         try:
             opportunity = self.db_manager.get_opportunity_by_id(opportunity_id)
             if not opportunity:
-                raise ValueError("Opportunity not found for content refresh.")
+                error_msg = f"Opportunity {opportunity_id} not found for content refresh."
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
 
             self.logger.info(
                 f"--- Orchestrator: Starting Content Refresh Workflow for '{opportunity.get('keyword')}' ---"
@@ -196,11 +202,15 @@ class WorkflowOrchestrator:
                 opportunity_id, selected_competitor_urls=None
             )
             if analysis_result.get("status") == "failed":
-                raise RuntimeError(f"Refresh failed during analysis: {analysis_result.get('message')}")
+                error_message = analysis_result.get("message", "Unknown analysis error.")
+                self.logger.error(f"Refresh failed during analysis for opportunity {opportunity_id}: {error_message}")
+                raise RuntimeError(f"Refresh failed during analysis: {error_message}")
 
             opportunity = self.db_manager.get_opportunity_by_id(opportunity_id)
             if not opportunity or opportunity.get("status") != "analyzed":
-                raise RuntimeError("Opportunity not in 'analyzed' state after refresh analysis.")
+                error_msg = f"Opportunity {opportunity_id} not in 'analyzed' state after refresh analysis. Current status: {opportunity.get('status') if opportunity else 'Not Found'}."
+                self.logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             self.job_manager.update_job_progress(job_id, "Content Generation", "Analysis complete, re-generating content.")
             
@@ -236,6 +246,7 @@ class WorkflowOrchestrator:
             f"--- Orchestrator: Initiating Content Refresh Workflow for Opportunity ID: {opportunity_id} (Async) ---"
         )
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_content_refresh_workflow_background,
             args=(opportunity_id,),
         )

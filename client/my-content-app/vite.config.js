@@ -9,7 +9,7 @@ export default defineConfig({
     proxy: {
       // Proxy API requests to the FastAPI backend
       '/api': {
-        target: 'http://localhost:8000', // Backend address
+        target: process.env.VITE_API_URL || 'http://localhost:8000', // Backend address
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''), // Strip /api prefix
       },

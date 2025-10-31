@@ -16,9 +16,9 @@ class ImageOrchestrator:
         try:
             opportunity = self.db_manager.get_opportunity_by_id(opportunity_id)
             if not opportunity or not opportunity.get("ai_content_json"):
-                raise ValueError(
-                    "Opportunity or content missing for single image regeneration."
-                )
+                error_msg = f"Opportunity {opportunity_id} or its AI content missing for single image regeneration."
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
 
             opportunity["client_cfg"] = self.client_cfg
 
@@ -34,7 +34,9 @@ class ImageOrchestrator:
             )
 
             if not images_data or not images_data[0]:
-                raise RuntimeError("Image generation failed or returned no data.")
+                error_msg = f"Image generation failed or returned no data for opportunity {opportunity_id}."
+                self.logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             new_image_data = images_data[0]
 
@@ -103,6 +105,7 @@ class ImageOrchestrator:
             f"--- Orchestrator: Initiating Single Image Regeneration for Opportunity ID: {opportunity_id} (Async) ---"
         )
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_single_image_generation_background,
             args=(opportunity_id, original_prompt, new_prompt),
         )
@@ -118,9 +121,9 @@ class ImageOrchestrator:
         try:
             opportunity = self.db_manager.get_opportunity_by_id(opportunity_id)
             if not opportunity:
-                raise ValueError(
-                    "Opportunity not found for featured image regeneration."
-                )
+                error_msg = f"Opportunity {opportunity_id} not found for featured image regeneration."
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
 
             opportunity["keyword"] = prompt
             opportunity["ai_content"] = {"meta_title": prompt}
@@ -163,6 +166,7 @@ class ImageOrchestrator:
             f"--- Orchestrator: Initiating Featured Image Regeneration for Opportunity ID: {opportunity_id} (Async) ---"
         )
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_featured_image_regeneration_background,
             args=(opportunity_id, prompt),
         )

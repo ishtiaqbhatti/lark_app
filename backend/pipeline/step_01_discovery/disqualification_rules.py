@@ -47,6 +47,16 @@ def apply_disqualification_rules(
     avg_backlinks = opportunity.get("avg_backlinks_info") or {}
     intent_info = opportunity.get("search_intent_info") or {}
 
+    # New Rule: Reject if SV or KD is 0 or null
+    search_volume = keyword_info.get("search_volume")
+    keyword_difficulty = keyword_props.get("keyword_difficulty")
+
+    if search_volume is None or search_volume == 0:
+        return True, "Rule 0: Rejected due to zero or null Search Volume.", True
+    
+    if keyword_difficulty is None or keyword_difficulty == 0:
+        return True, "Rule 0: Rejected due to zero or null Keyword Difficulty.", True
+
     # Tier 1: Foundational Checks
     if not all([keyword_info, keyword_props, intent_info]):
         return (

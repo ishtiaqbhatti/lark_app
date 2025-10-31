@@ -68,7 +68,7 @@ async def get_all_opportunities_summary_endpoint(
         opportunities_service.get_all_opportunities_summary,
         client_id,
         params,
-        select_columns="id, keyword, status, date_added, strategic_score, cpc, competition, main_intent, blog_qualification_status, blog_qualification_reason, latest_job_id, cluster_name, full_data",
+        select_columns="id, keyword, status, date_added, strategic_score, cpc, competition, main_intent, blog_qualification_status, blog_qualification_reason, latest_job_id, cluster_name, full_data, search_volume, keyword_difficulty",
     )
     return {
         "items": opportunities,
@@ -189,19 +189,6 @@ async def get_opportunity_by_id_endpoint(
             status_code=403,
             detail="You do not have permission to access this opportunity.",
         )
-
-    # W23 FIX: Manually parse the blueprint from full_data if it exists
-    if opportunity.get("full_data") and isinstance(opportunity["full_data"], str):
-        try:
-            full_data_json = json.loads(opportunity["full_data"])
-            if "blueprint" in full_data_json:
-                opportunity["blueprint"] = full_data_json["blueprint"]
-            if "serp_overview" in full_data_json:
-                opportunity["serp_overview"] = full_data_json["serp_overview"]
-        except json.JSONDecodeError:
-            logger.warning(
-                f"Could not decode full_data JSON for opportunity {opportunity_id}."
-            )
 
     logger.info(f"Retrieved opportunity from DB: {opportunity}")
     return opportunity

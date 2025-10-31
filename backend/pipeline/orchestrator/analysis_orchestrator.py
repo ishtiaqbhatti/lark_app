@@ -48,6 +48,7 @@ class AnalysisOrchestrator:
                 total_api_cost += serp_api_cost
 
             if not live_serp_data:
+                self.logger.error(f"Failed to retrieve live SERP data for analysis for keyword: {keyword}")
                 raise ValueError("Failed to retrieve live SERP data for analysis.")
 
             # --- START MODIFICATION ---
@@ -145,7 +146,7 @@ class AnalysisOrchestrator:
 
             if not content_intelligence.get("article_structure"):
                 self.logger.critical(
-                    "AI outline generation failed to produce an 'article_structure'."
+                    f"AI outline generation failed to produce an 'article_structure' for keyword: {keyword}."
                 )
                 raise ValueError("AI outline generation failed.")
 
@@ -209,6 +210,7 @@ class AnalysisOrchestrator:
         self, opportunity_id: int, selected_competitor_urls: Optional[List[str]] = None
     ) -> str:
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_analysis_background,
             args=(opportunity_id, selected_competitor_urls),
         )

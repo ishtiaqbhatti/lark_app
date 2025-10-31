@@ -13,9 +13,11 @@ class ValidationOrchestrator:
         """
         opportunity = self.db_manager.get_opportunity_by_id(opportunity_id)
         if not opportunity:
+            error_msg = f"Opportunity ID {opportunity_id} not found."
+            self.logger.error(error_msg)
             return {
                 "status": "failed",
-                "message": f"Opportunity ID {opportunity_id} not found.",
+                "message": error_msg,
             }
 
         self.logger.info(
@@ -35,7 +37,9 @@ class ValidationOrchestrator:
             )
             total_cost += serp_api_cost
             if not serp_overview:
-                raise ValueError("Failed to retrieve live SERP data for validation.")
+                error_msg = f"Failed to retrieve live SERP data for validation for keyword: {opportunity.get('keyword')}"
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
 
             from pipeline.step_04_analysis.run_analysis import run_final_validation
 
@@ -107,6 +111,7 @@ class ValidationOrchestrator:
             f"--- Orchestrator: Initiating Validation for Opportunity ID: {opportunity_id} (Async) ---"
         )
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_validation_background, args=(opportunity_id,)
         )
         return job_id

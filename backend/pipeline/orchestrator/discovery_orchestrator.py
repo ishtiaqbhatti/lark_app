@@ -58,7 +58,7 @@ class DiscoveryOrchestrator:
             job_status = self.job_manager.get_job_status(job_id)
             if job_status and job_status.get("status") == "failed":
                 run_logger.warning(
-                    "Job found marked as 'failed' (cancelled). Exiting gracefully."
+                    f"Job {job_id} found marked as 'failed' (cancelled). Exiting gracefully."
                 )
                 self.db_manager.update_discovery_run_status(run_id, "cancelled")
                 return {"message": "Job cancelled by user request."}
@@ -168,6 +168,7 @@ class DiscoveryOrchestrator:
             f"--- Orchestrator: Initiating Full Discovery & Qualification for Run ID: {run_id} (Async) ---"
         )
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_discovery_background,
             args=(
                 run_id,

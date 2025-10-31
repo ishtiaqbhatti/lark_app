@@ -16,7 +16,9 @@ class SocialOrchestrator:
         try:
             opportunity = self.db_manager.get_opportunity_by_id(opportunity_id)
             if not opportunity:
-                raise ValueError("Opportunity not found for social media regeneration.")
+                error_msg = f"Opportunity {opportunity_id} not found for social media regeneration."
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
 
             opportunity["client_cfg"] = self.client_cfg
 
@@ -52,6 +54,7 @@ class SocialOrchestrator:
             f"--- Orchestrator: Initiating Social Media Post Regeneration for Opportunity ID: {opportunity_id} (Async) ---"
         )
         job_id = self.job_manager.create_job(
+            self.client_id,
             target_function=self._run_social_posts_regeneration_background,
             args=(opportunity_id,),
         )

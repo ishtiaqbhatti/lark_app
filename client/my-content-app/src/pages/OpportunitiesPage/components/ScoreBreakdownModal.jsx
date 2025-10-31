@@ -50,7 +50,7 @@ const ScoreBreakdownModal = ({ open, onCancel, opportunity }) => {
   }, [open, opportunity]);
 
   const keyword = opportunity?.keyword;
-  const scoreBreakdown = opportunity?.score_breakdown || opportunity?.full_data?.score_breakdown;
+  const scoreBreakdown = opportunity?.score_breakdown;
 
   if (!scoreBreakdown) {
     return <Modal title="Score Breakdown" open={open} onCancel={onCancel} footer={null}><Alert message="No score breakdown available for this opportunity." type="info" showIcon /></Modal>;

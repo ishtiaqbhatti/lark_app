@@ -6,9 +6,10 @@ from data_access.models import KeywordData
 
 def map_keyword_data(raw_data: Dict[str, Any]) -> KeywordData:
     """Maps raw keyword data from the DataForSEO API to the KeywordData model."""
-    keyword_info = raw_data.get("keyword_info", {})
-    keyword_properties = raw_data.get("keyword_properties", {})
-    search_intent_info = raw_data.get("search_intent_info", {})
+    full_data = raw_data.get("full_data", {})
+    keyword_info = full_data.get("keyword_info", {})
+    keyword_properties = full_data.get("keyword_properties", {})
+    search_intent_info = full_data.get("search_intent_info", {})
 
     return KeywordData(
         keyword=raw_data.get("keyword"),

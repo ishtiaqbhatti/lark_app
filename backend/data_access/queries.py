@@ -417,11 +417,8 @@ UPDATE jobs SET status = ?, progress = ?, finished_at = ? WHERE id = ?;
 """
 
 UPDATE_JOB = """
-
-INSERT OR REPLACE INTO jobs (id, status, progress, result, error, started_at, finished_at)
-
-VALUES (?, ?, ?, ?, ?, ?, ?);
-
+INSERT OR REPLACE INTO jobs (id, client_id, status, progress, result, error, function_name, started_at, finished_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 GET_ALL_JOBS = "SELECT * FROM jobs ORDER BY started_at DESC LIMIT 100;"
@@ -545,3 +542,5 @@ UPDATE jobs
 SET status = 'failed', error = ?, finished_at = ?
 WHERE status = 'running';
 """
+
+GET_ACTIVE_JOBS_BY_CLIENT = "SELECT * FROM jobs WHERE client_id = ? AND status IN ('running', 'pending');"

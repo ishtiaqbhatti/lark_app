@@ -1,5 +1,5 @@
 import { useQuery } from 'react-query';
-import { useState, useMemo, useEffect } from 'react';
+import { useState } from 'react';
 import { getOpportunities, getDashboardStats } from '../../../services/opportunitiesService';
 import { useClient } from '../../../hooks/useClient';
 
@@ -8,64 +8,63 @@ export const useOpportunities = () => {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
   const [activeStatus, setActiveStatus] = useState('review');
   const [sorter, setSorter] = useState({ field: 'strategic_score', order: 'descend' });
-  const [statusCounts, setStatusCounts] = useState({});
+  const [keyword, setKeyword] = useState('');
 
-  const { data: statsData, isLoading: isLoadingStats } = useQuery(
-    ['dashboardStats', clientId],
-    () => getDashboardStats(clientId),
-    {
-      enabled: !!clientId,
-      onSuccess: (data) => {
-        if (data.status_counts) {
-          setStatusCounts(data.status_counts);
-          if (!activeStatus && Object.keys(data.status_counts).length > 0) {
-            setActiveStatus(Object.keys(data.status_counts)[0]);
-          }
-        }
-      },
-    }
-  );
-  
-  const { data: opportunitiesData, isLoading, isError, error, refetch } = useQuery(
-    ['opportunities', clientId, pagination.current, pagination.pageSize, sorter, activeStatus],
-    () => getOpportunities(clientId, { 
-      page: pagination.current, 
-      limit: pagination.pageSize, 
-      sort_by: sorter.field, 
+  const { data, isLoading, isError, error, refetch } = useQuery(
+    ['opportunities', clientId, pagination.current, pagination.pageSize, activeStatus, sorter, keyword],
+    () => getOpportunities(clientId, {
+      page: pagination.current,
+      limit: pagination.pageSize,
+      status: activeStatus,
+      sort_by: sorter.field,
       sort_direction: sorter.order === 'ascend' ? 'asc' : 'desc',
-      status: activeStatus 
+      keyword: keyword,
     }),
     {
       enabled: !!clientId,
-      staleTime: 60 * 1000,
-      onSuccess: (data) => {
-        setPagination(prev => ({ ...prev, total: data.total_items || 0 }));
+      staleTime: 60 * 1000, // Keep data fresh for 1 minute
+      onSuccess: (response) => {
+        setPagination(prev => ({ ...prev, total: response.total_items || 0 }));
       }
     }
   );
 
-  const opportunities = useMemo(() => opportunitiesData?.items || [], [opportunitiesData]);
+  const { data: statsData } = useQuery(
+    ['dashboardStats', clientId],
+    () => getDashboardStats(clientId),
+    {
+      enabled: !!clientId,
+      staleTime: 60 * 1000, // Keep data fresh for 1 minute
+    }
+  );
 
   const handleTableChange = (newPagination, newFilters, newSorter) => {
     setPagination(prev => ({ ...prev, current: newPagination.current, pageSize: newPagination.pageSize }));
-    
+
     const effectiveSorter = Array.isArray(newSorter) ? newSorter[0] : newSorter;
     if (effectiveSorter?.field) {
         setSorter({ field: effectiveSorter.field, order: effectiveSorter.order });
     } else {
+        // Reset to default sort if no specific column is sorted
         setSorter({ field: 'strategic_score', order: 'descend' });
     }
-    refetch();
+  };
+
+  const handleSearch = (newKeyword) => {
+    setKeyword(newKeyword);
   };
 
   return {
-    opportunities,
-    isLoading: isLoading || isLoadingStats,
-    isError, error,
+    opportunities: data?.items || [],
+    isLoading,
+    isError,
+    error,
     pagination,
     handleTableChange,
-    activeStatus, setActiveStatus,
-    statusCounts,
-    refetchOpportunities: refetch
+    activeStatus,
+    setActiveStatus,
+    statusCounts: statsData?.status_counts || {},
+    handleSearch,
+    refetchOpportunities: refetch,
   };
 };
