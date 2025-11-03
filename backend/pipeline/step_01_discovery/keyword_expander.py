@@ -29,7 +29,8 @@ class KeywordExpander:
         order_by: Optional[List[str]],
         existing_keywords: set,
         limit: Optional[int] = None,
-        depth: Optional[int] = None,
+        pages_to_fetch: Optional[int] = None,
+        related_keywords_depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = False,
     ) -> Dict[str, Any]:
         """
@@ -46,7 +47,8 @@ class KeywordExpander:
             order_by,
             existing_keywords,
             limit,
-            depth,
+            pages_to_fetch,
+            related_keywords_depth,
             ignore_synonyms,
         )
 

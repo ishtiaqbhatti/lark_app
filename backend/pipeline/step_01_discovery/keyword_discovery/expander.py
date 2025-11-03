@@ -24,7 +24,8 @@ class NewKeywordExpander:
         order_by: Optional[List[str]],
         existing_keywords: set,
         limit: Optional[int] = None,
-        depth: Optional[int] = None,
+        pages_to_fetch: Optional[int] = None,
+        related_keywords_depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = False,
     ) -> Dict[str, Any]:
         if not discovery_modes:
@@ -110,7 +111,8 @@ class NewKeywordExpander:
             filters=structured_filters,  # Use the structured filters directly
             order_by=structured_orderby,
             limit=limit,
-            depth=depth,
+            pages_to_fetch=pages_to_fetch,
+            related_keywords_depth=related_keywords_depth,
             ignore_synonyms_override=ignore_synonyms,
         )
         self.logger.info(

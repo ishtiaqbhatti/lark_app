@@ -23,7 +23,8 @@ def run_discovery_phase(
     filters: Optional[List[Any]],
     order_by: Optional[List[str]],
     limit: Optional[int] = None,
-    depth: Optional[int] = None,
+    pages_to_fetch: Optional[int] = None,
+    related_keywords_depth: Optional[int] = None,
     ignore_synonyms: Optional[bool] = False,
     include_clickstream_data: Optional[bool] = None,
     closely_variants: Optional[bool] = None,
@@ -52,7 +53,8 @@ def run_discovery_phase(
         order_by,
         existing_keywords,
         limit,
-        depth,
+        pages_to_fetch,
+        related_keywords_depth,
         ignore_synonyms,
     )
 

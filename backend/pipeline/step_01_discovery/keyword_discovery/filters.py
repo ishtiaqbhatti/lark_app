@@ -31,6 +31,21 @@ def sanitize_filters_for_api(filters: List[Any]) -> List[Any]:
     return sanitized
 
 
+def add_serp_feature_filters(config: Dict[str, Any], std_api_filters: List[Any], rel_api_filters: List[Any]):
+    """Adds SERP feature filters to the standard and related filters lists."""
+    required_serp_features = config.get("required_serp_features")
+    if required_serp_features:
+        for feature in required_serp_features:
+            std_api_filters.extend([["serp_info.serp_item_types", "in", [feature]], "and"])
+            rel_api_filters.extend([["keyword_data.serp_info.serp_item_types", "in", [feature]], "and"])
+
+    excluded_serp_features = config.get("excluded_serp_features")
+    if excluded_serp_features:
+        for feature in excluded_serp_features:
+            std_api_filters.extend([["serp_info.serp_item_types", "not_in", [feature]], "and"])
+            rel_api_filters.extend([["keyword_data.serp_info.serp_item_types", "not_in", [feature]], "and"])
+
+
 def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any]]:
     """
     Builds filter lists for API-side filtering for KD, SV, Competition, and Intent.
@@ -148,6 +163,8 @@ def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any
             [["keyword_data.keyword", "regex", search_phrase_regex], "and"]
         )
 
+    add_serp_feature_filters(config, std_api_filters, rel_api_filters)
+
     if std_api_filters:
         std_api_filters.pop()
     if rel_api_filters:
@@ -161,3 +178,4 @@ def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any
     logger.info(f"Built related API filters: {json.dumps(rel_api_filters)}")
 
     return std_api_filters, rel_api_filters
+

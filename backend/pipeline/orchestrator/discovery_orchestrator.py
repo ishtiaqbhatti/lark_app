@@ -20,11 +20,11 @@ class DiscoveryOrchestrator:
         order_by: Optional[List[str]],
         filters_override: Optional[Dict[str, Any]],
         limit: Optional[int] = None,
-        depth: Optional[int] = None,
+        pages_to_fetch: Optional[int] = None,
+        related_keywords_depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = None,
         include_clickstream_data: Optional[bool] = None,
         closely_variants: Optional[bool] = None,
-        exact_match: Optional[bool] = None,
     ):
         """Internal method to execute the consolidated discovery phase for a job."""
         log_dir = "discovery_logs"
@@ -51,7 +51,7 @@ class DiscoveryOrchestrator:
             run_config.update(filters_override)
 
         run_logger.info(
-            f"Starting discovery with modes: {discovery_modes}, filters: {filters}, order_by: {order_by}, limit: {limit}, depth: {depth}"
+            f"Starting discovery with modes: {discovery_modes}, filters: {filters}, order_by: {order_by}, limit: {limit}, pages_to_fetch: {pages_to_fetch}, related_keywords_depth: {related_keywords_depth}"
         )
 
         try:
@@ -81,7 +81,8 @@ class DiscoveryOrchestrator:
                 filters=filters,
                 order_by=order_by,
                 limit=limit,
-                depth=depth,
+                pages_to_fetch=pages_to_fetch,
+                related_keywords_depth=related_keywords_depth,
                 ignore_synonyms=ignore_synonyms,
                 include_clickstream_data=include_clickstream_data,
                 closely_variants=closely_variants,
@@ -154,11 +155,11 @@ class DiscoveryOrchestrator:
         order_by: Optional[List[str]] = None,
         filters_override: Optional[Dict[str, Any]] = None,
         limit: Optional[int] = None,
-        depth: Optional[int] = None,
+        pages_to_fetch: Optional[int] = None,
+        related_keywords_depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = None,
         include_clickstream_data: Optional[bool] = None,
         closely_variants: Optional[bool] = None,
-        exact_match: Optional[bool] = None,
     ) -> str:
         """
         Public method to initiate a discovery run asynchronously.
@@ -175,11 +176,11 @@ class DiscoveryOrchestrator:
                 order_by,
                 filters_override,
                 limit,
-                depth,
+                pages_to_fetch,
+                related_keywords_depth,
                 ignore_synonyms,
                 include_clickstream_data,
                 closely_variants,
-                exact_match,
             ),
         )
         return job_id

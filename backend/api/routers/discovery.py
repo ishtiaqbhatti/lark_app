@@ -127,15 +127,17 @@ async def start_discovery_run_async(
             detail="You do not have permission to access this client's resources.",
         )
     try:
+        # Use values directly from the request, with sensible defaults
         filters = request.filters
         limit = request.limit or 1000
+        discovery_modes = request.discovery_modes or ["keyword_ideas", "keyword_suggestions", "related_keywords"]
+        pages_to_fetch = request.pages_to_fetch or 1
+        related_keywords_depth = request.related_keywords_depth or 1
         
-        # --- INTELLIGENT DISCOVERY MODE SELECTION ---
-        # The individual API calls will now enforce specific limits and depth=1.
-        # The overall 'depth' for the run is now fixed to 1 as per new requirements.
-        discovery_modes = ["keyword_ideas", "keyword_suggestions", "related_keywords"]
-        depth = 1
-        # --- END OF CHANGE ---
+        # Use request's value or a default for other parameters
+        ignore_synonyms = request.ignore_synonyms if request.ignore_synonyms is not None else True
+        include_clickstream_data = request.include_clickstream_data if request.include_clickstream_data is not None else False
+        closely_variants = request.closely_variants if request.closely_variants is not None else False
 
         parameters = {
             "seed_keywords": request.seed_keywords,
@@ -144,11 +146,11 @@ async def start_discovery_run_async(
             "order_by": request.order_by,
             "filters_override": request.filters_override,
             "limit": limit,
-            "depth": depth,
-            "include_clickstream_data": False,  # Hardcoded
-            "closely_variants": False,  # Hardcoded
-            "ignore_synonyms": True,  # Hardcoded
-            "exact_match": True, # Hardcoded
+            "pages_to_fetch": pages_to_fetch,
+            "related_keywords_depth": related_keywords_depth,
+            "include_clickstream_data": include_clickstream_data,
+            "closely_variants": closely_variants,
+            "ignore_synonyms": ignore_synonyms,
         }
         run_id = discovery_service.create_discovery_run(
             client_id=client_id, parameters=parameters
@@ -162,11 +164,11 @@ async def start_discovery_run_async(
             request.order_by,
             request.filters_override,
             limit,
-            depth,
-            ignore_synonyms=True,
-            include_clickstream_data=False,
-            closely_variants=False,
-            exact_match=True,
+            pages_to_fetch,
+            related_keywords_depth,
+            ignore_synonyms=ignore_synonyms,
+            include_clickstream_data=include_clickstream_data,
+            closely_variants=closely_variants,
         )
         return {"job_id": job_id, "message": f"Discovery run job {job_id} started."}
     except Exception as e:

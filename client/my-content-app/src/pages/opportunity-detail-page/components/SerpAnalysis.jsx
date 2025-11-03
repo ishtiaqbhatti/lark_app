@@ -72,6 +72,57 @@ const SerpAnalysis = ({ blueprint }) => {
         </Col>
       </Row>
 
+    {blueprint.serp_overview?.paid_ad_copy?.length > 0 && (
+      <div style={{ marginBottom: 24 }}>
+        <Title level={5}>Top Paid Ad Copy (High Commercial Intent)</Title>
+        <List
+          dataSource={blueprint.serp_overview.paid_ad_copy}
+          renderItem={(ad) => (
+            <List.Item>
+              <List.Item.Meta
+                title={<a href={ad.url} target="_blank" rel="noopener noreferrer">{ad.title}</a>}
+                description={ad.description}
+              />
+            </List.Item>
+          )}
+          size="small"
+          bordered
+        />
+      </div>
+    )}
+
+    {blueprint.serp_overview?.ai_overview_sources?.length > 0 && (
+      <div style={{ marginBottom: 24 }}>
+        <Title level={5}>AI Overview Sources (Google's Authority Map)</Title>
+        <List
+          dataSource={blueprint.serp_overview.ai_overview_sources}
+          renderItem={(url) => (
+            <List.Item>
+              <LinkOutlined style={{ marginRight: 8 }} /><Text copyable={{ text: url }} ellipsis={true} style={{ maxWidth: '90%' }}>{url}</Text>
+            </List.Item>
+          )}
+          size="small"
+          bordered
+        />
+      </div>
+    )}
+
+    {blueprint.serp_overview?.discussion_snippets?.length > 0 && (
+      <div style={{ marginBottom: 24 }}>
+        <Title level={5}>Discussions and Forum Snippets (User Pain Points)</Title>
+        <List
+          dataSource={blueprint.serp_overview.discussion_snippets}
+          renderItem={(snippet) => (
+            <List.Item>
+              <CommentOutlined style={{ marginRight: 8 }} /><Text>{snippet}</Text>
+            </List.Item>
+          )}
+          size="small"
+          bordered
+        />
+      </div>
+    )}
+
       <Title level={5}>SERP Features Present</Title>
       <List
         dataSource={serp_item_types}

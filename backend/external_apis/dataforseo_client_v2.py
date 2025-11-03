@@ -31,10 +31,6 @@ class DataForSEOClientV2:
     ONPAGE_INSTANT_PAGES = "on_page/instant_pages"
     ONPAGE_CONTENT_PARSING = "on_page/content_parsing/live"  # Add this line
 
-    KEYWORD_IDEAS_MODE_LIMIT = 10
-    KEYWORD_SUGGESTIONS_MODE_LIMIT = 100
-    RELATED_KEYWORDS_MODE_LIMIT = 100
-
     def __init__(
         self,
         login: str,
@@ -55,6 +51,12 @@ class DataForSEOClientV2:
         self.db_manager = db_manager
         self.config = config  # Store the config object
         self.enable_cache = enable_cache
+
+        # Make limits configurable
+        self.keyword_ideas_limit = self.config.get("KEYWORD_IDEAS_MODE_LIMIT", 10)
+        self.keyword_suggestions_limit = self.config.get("KEYWORD_SUGGESTIONS_MODE_LIMIT", 100)
+        self.related_keywords_limit = self.config.get("RELATED_KEYWORDS_MODE_LIMIT", 100)
+
 
     def _enforce_api_filter_limit(
         self, filters: Optional[List[Any]], max_limit: int = 8
@@ -857,7 +859,8 @@ class DataForSEOClientV2:
         filters: Dict[str, Any],
         order_by: Optional[Dict[str, List[str]]],
         limit: Optional[int] = None,
-        depth: Optional[int] = None,
+        pages_to_fetch: Optional[int] = None,
+        related_keywords_depth: Optional[int] = None,
         ignore_synonyms_override: Optional[bool] = None,
         include_clickstream_override: Optional[bool] = None,
         closely_variants_override: Optional[bool] = None,
@@ -868,7 +871,7 @@ class DataForSEOClientV2:
         """
         all_items = []
         total_cost = 0.0
-        max_pages = client_cfg.get("discovery_max_pages", 1)
+        max_pages = pages_to_fetch or client_cfg.get("discovery_max_pages", 1)
 
         # Dynamic parameters (fall back to client_cfg if override is None)
         ignore_synonyms = (
@@ -906,7 +909,7 @@ class DataForSEOClientV2:
                 "keywords": seed_keywords,
                 "location_code": location_code,
                 "language_code": language_code,
-                "limit": self.KEYWORD_IDEAS_MODE_LIMIT,
+                "limit": self.keyword_ideas_limit,
                 "include_serp_info": True,
                 "ignore_synonyms": ignore_synonyms,
                 "closely_variants": closely_variants,
@@ -915,7 +918,7 @@ class DataForSEOClientV2:
                 "include_clickstream_data": include_clickstream,
             }
             ideas_items, cost = self.post_with_paging(
-                ideas_endpoint, ideas_task, max_pages=1, tag="discovery_ideas"
+                ideas_endpoint, ideas_task, max_pages=max_pages, tag="discovery_ideas"
             )
             total_cost += cost
 
@@ -926,79 +929,94 @@ class DataForSEOClientV2:
             self.logger.info(f"Found {len(ideas_items)} ideas from Keyword Ideas API.")
 
         if "keyword_suggestions" in discovery_modes:
-            self.logger.info("Fetching keyword suggestions...")
+            self.logger.info("Fetching keyword suggestions in parallel...")
             suggestions_endpoint = self.LABS_KEYWORD_SUGGESTIONS
-            for seed_keyword in seed_keywords:
-                suggestions_task = {
-                    "keyword": seed_keyword,
-                    "location_code": location_code,
-                    "language_code": language_code,
-                    "limit": self.KEYWORD_SUGGESTIONS_MODE_LIMIT,
-                    "include_serp_info": True,
-                    "exact_match": exact_match,
-                    "ignore_synonyms": ignore_synonyms,
-                    "include_seed_keyword": True,
-                    "filters": self._prioritize_and_limit_filters(
-                        self._convert_filters_to_api_format(filters.get("suggestions"))
-                    ),
-                    "order_by": order_by.get("suggestions") if order_by else None,
-                    "include_clickstream_data": include_clickstream,
-                }
-                suggestions_items, cost = self.post_with_paging(
-                    suggestions_endpoint,
-                    suggestions_task,
-                    max_pages=1,
-                    tag=f"discovery_suggestions:{seed_keyword[:20]}",
-                )
-                total_cost += cost
-                for item in suggestions_items:
-                    item["discovery_source"] = "keyword_suggestions"
-                    item["depth"] = 0
-                    all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
-                self.logger.info(
-                    f"Found {len(suggestions_items)} suggestions for '{seed_keyword}'."
-                )
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_seed = {}
+                for seed_keyword in seed_keywords:
+                    suggestions_task = {
+                        "keyword": seed_keyword,
+                        "location_code": location_code,
+                        "language_code": language_code,
+                        "limit": self.keyword_suggestions_limit,
+                        "include_serp_info": True,
+                        "exact_match": exact_match,
+                        "ignore_synonyms": ignore_synonyms,
+                        "include_seed_keyword": True,
+                        "filters": self._prioritize_and_limit_filters(
+                            self._convert_filters_to_api_format(filters.get("suggestions"))
+                        ),
+                        "order_by": order_by.get("suggestions") if order_by else None,
+                        "include_clickstream_data": include_clickstream,
+                    }
+                    future = executor.submit(
+                        self.post_with_paging,
+                        suggestions_endpoint,
+                        suggestions_task,
+                        max_pages=max_pages,
+                        tag=f"discovery_suggestions:{seed_keyword[:20]}",
+                    )
+                    future_to_seed[future] = seed_keyword
+
+                for future in as_completed(future_to_seed):
+                    seed = future_to_seed[future]
+                    try:
+                        suggestions_items, cost = future.result()
+                        total_cost += cost
+                        for item in suggestions_items:
+                            item["discovery_source"] = "keyword_suggestions"
+                            item["depth"] = 0
+                            all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
+                        self.logger.info(f"Found {len(suggestions_items)} suggestions for '{seed}'.")
+                    except Exception as exc:
+                        self.logger.error(f"'{seed}' generated an exception: {exc}")
 
         if "related_keywords" in discovery_modes:
-            self.logger.info("Fetching related keywords...")
+            self.logger.info("Fetching related keywords in parallel...")
             related_endpoint = self.LABS_RELATED_KEYWORDS
-            
-            # Limit to max 10 seed keywords for related keyword generation
-            seed_keywords_for_related = seed_keywords[:10]
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_seed = {}
+                for seed in seed_keywords:
+                    related_task = {
+                        "keyword": seed,
+                        "location_code": location_code,
+                        "language_code": language_code,
+                        "depth": related_keywords_depth or 1,
+                        "limit": self.related_keywords_limit,
+                        "include_serp_info": True,
+                        "filters": self._prioritize_and_limit_filters(
+                            self._convert_filters_to_api_format(filters.get("related"))
+                        ),
+                        "order_by": order_by.get("related") if order_by else None,
+                        "include_clickstream_data": include_clickstream,
+                        "replace_with_core_keyword": client_cfg.get(
+                            "discovery_replace_with_core_keyword", False
+                        ),
+                    }
+                    future = executor.submit(
+                        self.post_with_paging,
+                        related_endpoint,
+                        related_task,
+                        max_pages=max_pages,
+                        tag=f"discovery_related:{seed[:20]}",
+                    )
+                    future_to_seed[future] = seed
 
-            for seed in seed_keywords_for_related:
-                related_task = {
-                    "keyword": seed,
-                    "location_code": location_code,
-                    "language_code": language_code,
-                    "depth": 1, # Max to one page for discovery
-                    "limit": self.RELATED_KEYWORDS_MODE_LIMIT,
-                    "include_serp_info": True,
-                    "filters": self._prioritize_and_limit_filters(
-                        self._convert_filters_to_api_format(filters.get("related"))
-                    ),
-                    "order_by": order_by.get("related") if order_by else None,
-                    "include_clickstream_data": include_clickstream,
-                    "replace_with_core_keyword": client_cfg.get(
-                        "discovery_replace_with_core_keyword", False
-                    ),
-                }
-
-                related_items, cost = self.post_with_paging(
-                    related_endpoint,
-                    related_task,
-                    max_pages=1,
-                    tag=f"discovery_related:{seed[:20]}",
-                )
-                total_cost += cost
-                for item in related_items:
-                    keyword_data = item.get("keyword_data")
-                    if keyword_data:
-                        keyword_data["discovery_source"] = "related"
-                        keyword_data["depth"] = item.get("depth")
-                        all_items.append(
-                            DataForSEOMapper.sanitize_keyword_data_item(keyword_data)
-                        )
+                for future in as_completed(future_to_seed):
+                    seed = future_to_seed[future]
+                    try:
+                        related_items, cost = future.result()
+                        total_cost += cost
+                        for item in related_items:
+                            keyword_data = item.get("keyword_data")
+                            if keyword_data:
+                                keyword_data["discovery_source"] = "related"
+                                keyword_data["depth"] = item.get("depth")
+                                all_items.append(
+                                    DataForSEOMapper.sanitize_keyword_data_item(keyword_data)
+                                )
+                    except Exception as exc:
+                        self.logger.error(f"'{seed}' generated an exception: {exc}")
             self.logger.info(f"Total raw items from all sources: {len(all_items)}")
 
         return all_items, total_cost

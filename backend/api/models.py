@@ -29,7 +29,8 @@ class DiscoveryRunRequest(BaseModel):
     filters: Optional[List[Any]] = None
     order_by: Optional[List[str]] = None
     filters_override: Optional[Dict[str, Any]] = {}
-    depth: Optional[int] = None
+    pages_to_fetch: Optional[int] = None
+    related_keywords_depth: Optional[int] = None
     limit: Optional[int] = None
     ignore_synonyms: Optional[bool] = False
     # NEW: Parameters for user flexibility

@@ -54,8 +54,8 @@ const StrategicScoreBreakdown = ({ scoreBreakdown }) => {
                 <List.Item.Meta
                   title={
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span>
-                        {factor.name}
+                      <span style={{ opacity: factor.weight > 0 ? 1 : 0.5 }}>
+                        <Text strong={factor.weight >= 15}>{factor.name}</Text>
                         <Tooltip title={friendlyExplanations[factor.key]}>
                           <InfoCircleOutlined style={{ marginLeft: 8, color: '#888' }} />
                         </Tooltip>
@@ -66,12 +66,13 @@ const StrategicScoreBreakdown = ({ scoreBreakdown }) => {
                     </div>
                   }
                   description={
-                    <div>
+                    <div style={{ opacity: factor.weight > 0 ? 1 : 0.5 }}>
                       <Progress
                         percent={factor.score}
                         showInfo={false}
                         strokeColor={getScoreColor(factor.score)}
                         style={{ marginBottom: 8 }}
+                        strokeWidth={factor.weight >= 15 ? 10 : 6} // Makes high-weight bars thicker
                       />
                       {factor.breakdown.message ? (
                         <Text type="secondary">{factor.breakdown.message}</Text>
