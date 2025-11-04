@@ -4,7 +4,6 @@ import traceback
 import os
 from typing import Dict, Any, List, Optional
 
-from backend.services.serp_analysis_service import SerpAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,6 @@ class DiscoveryOrchestrator:
         ignore_synonyms: Optional[bool] = None,
         include_clickstream_data: Optional[bool] = None,
         closely_variants: Optional[bool] = None,
-        exact_match: Optional[bool] = None,
     ):
         """Internal method to execute the consolidated discovery phase for a job."""
         log_dir = "discovery_logs"
@@ -133,8 +131,6 @@ class DiscoveryOrchestrator:
             self.job_manager.update_job_status(
                 job_id, "failed", progress=100, error=str(e)
             )
-            # --- ADD THIS NEW BLOCK ---
-            # Mark any partially processed opportunities from this run as failed.
             run_logger.info(f"Marking partially fetched opportunities from run_id {run_id} as 'failed_scoring'.")
             conn = self.db_manager._get_conn()
             with conn:
@@ -142,7 +138,6 @@ class DiscoveryOrchestrator:
                     "UPDATE opportunities SET status = 'failed_scoring', error_message = ? WHERE run_id = ? AND status = 'fetched'",
                     (f"Parent discovery job {job_id} failed.", run_id)
                 )
-            # --- END NEW BLOCK ---
             raise
 
     def run_discovery_and_save(
@@ -158,7 +153,6 @@ class DiscoveryOrchestrator:
         ignore_synonyms: Optional[bool] = None,
         include_clickstream_data: Optional[bool] = None,
         closely_variants: Optional[bool] = None,
-        exact_match: Optional[bool] = None,
     ) -> str:
         """
         Public method to initiate a discovery run asynchronously.
@@ -182,7 +176,6 @@ class DiscoveryOrchestrator:
                 ignore_synonyms,
                 include_clickstream_data,
                 closely_variants,
-                exact_match,
             ),
         )
         return job_id

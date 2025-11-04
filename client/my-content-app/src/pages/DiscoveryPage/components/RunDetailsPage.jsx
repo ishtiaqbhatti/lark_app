@@ -65,6 +65,12 @@ const RunDetailsPage = () => {
       dataIndex: 'keyword',
       key: 'keyword',
       sorter: (a, b) => a.keyword.localeCompare(b.keyword),
+      render: (text, record) => (
+        <Space>
+          <Text>{text}</Text>
+          {record.is_question && <Tooltip title="Question Keyword"><QuestionCircleOutlined style={{ color: '#1890ff' }} /></Tooltip>}
+        </Space>
+      ),
     },
     {
       title: 'Qualification Status',

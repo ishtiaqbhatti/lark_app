@@ -59,6 +59,15 @@ class DynamicPromptAssembler:
         for placeholder, value in replacements.items():
             base_instructions = base_instructions.replace(placeholder, str(value))
 
+        # NEW: Incorporate AI-generated topic clusters into the base instructions
+        ai_topic_clusters = blueprint.get("ai_topic_clusters", [])
+        if ai_topic_clusters:
+            base_instructions += "\n\n**AI-GENERATED TOPIC STRUCTURE (PRIORITY):**\n"
+            base_instructions += "The following structure represents the core topics and keywords for this article. Ensure you build your sections around these:\n"
+            for cluster in ai_topic_clusters:
+                base_instructions += f"- **H2: {cluster['topic_name']}** (Keywords to cover in this section: {', '.join(cluster['keywords'])})\n"
+            base_instructions += "Ensure these topics are covered comprehensively and use the listed keywords within their respective H2 sections.\n"
+
         persona = brief.get("target_audience_persona", "General audience")
         if "expert" in persona.lower() or "planner" in persona.lower():
             readability_instruction = "The tone must be highly sophisticated and authoritative. Maintain a Flesch-Kincaid Grade level of 10 or higher."

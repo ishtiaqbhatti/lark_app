@@ -1,9 +1,11 @@
-# core/utils.py
+# backend/core/utils.py
+
 import logging
 import re
 from typing import Optional, Union, Dict
-from datetime import datetime
+from datetime import datetime, timezone # Added timezone for robustness
 
+# ... (rest of imports) ...
 
 def slugify(text: str) -> str:
     """
@@ -31,34 +33,10 @@ def is_question_keyword(keyword: str) -> bool:
 
     # Common question prefixes
     question_starters = [
-        "what",
-        "when",
-        "where",
-        "who",
-        "why",
-        "how",
-        "which",
-        "whose",
-        "is",
-        "are",
-        "am",
-        "was",
-        "were",
-        "do",
-        "does",
-        "did",
-        "can",
-        "could",
-        "will",
-        "would",
-        "should",
-        "may",
-        "might",
-        "have",
-        "has",
-        "had",
-        "are there",
-        "is there",
+        "what", "when", "where", "who", "why", "how", "which", "whose",
+        "is", "are", "am", "was", "were", "do", "does", "did",
+        "can", "could", "will", "would", "should", "may", "might",
+        "have", "has", "had", "are there", "is there", "why do", "how to"
     ]
 
     # Check if the keyword starts with a question word or ends with a question mark
@@ -68,6 +46,10 @@ def is_question_keyword(keyword: str) -> bool:
     for starter in question_starters:
         if keyword_lower.startswith(starter + " "):
             return True
+
+    # Heuristic: Check for common question phrases within the keyword
+    if " how " in keyword_lower or " what " in keyword_lower or " why " in keyword_lower:
+        return True
 
     return False
 
@@ -93,6 +75,10 @@ def safe_compare(
         return value > threshold
     elif operation == "lt":
         return value < threshold
+    elif operation == "ge": # Added for >= 
+        return value >= threshold
+    elif operation == "le": # Added for <= 
+        return value <= threshold
 
     return False
 
@@ -139,8 +125,8 @@ def calculate_serp_times(
     if datetime_str:
         parsed_date_iso = parse_datetime_string(datetime_str)
         if parsed_date_iso:
-            serp_date = datetime.fromisoformat(parsed_date_iso)
-            days_ago = (datetime.utcnow() - serp_date).days
+            serp_date = datetime.fromisoformat(parsed_date_iso).replace(tzinfo=timezone.utc) # Ensure UTC
+            days_ago = (datetime.now(timezone.utc) - serp_date).days
         else:
             logging.getLogger(__name__).warning(
                 f"Could not parse SERP datetime for days_ago: {datetime_str}"
@@ -151,8 +137,8 @@ def calculate_serp_times(
         parsed_prev_update_iso = parse_datetime_string(previous_datetime_str)
 
         if parsed_last_update_iso and parsed_prev_update_iso:
-            last_update_dt = datetime.fromisoformat(parsed_last_update_iso)
-            prev_update_dt = datetime.fromisoformat(parsed_prev_update_iso)
+            last_update_dt = datetime.fromisoformat(parsed_last_update_iso).replace(tzinfo=timezone.utc) # Ensure UTC
+            prev_update_dt = datetime.fromisoformat(parsed_prev_update_iso).replace(tzinfo=timezone.utc) # Ensure UTC
             update_interval_days = abs((last_update_dt - prev_update_dt).days)
         else:
             logging.getLogger(__name__).warning(

@@ -20,6 +20,7 @@ import CompetitorBacklinks from './components/CompetitorBacklinks';
 import IntentAnalysis from './components/IntentAnalysis';
 import SerpVitals from './components/SerpVitals';
 import GrowthTrend from './components/GrowthTrend';
+import ClusteredKeywords from './components/ClusteredKeywords';
 
 import WorkflowTracker from './components/WorkflowTracker';
 
@@ -104,6 +105,7 @@ const OpportunityDetailPageV2 = () => {
           <SerpAnalysis blueprint={blueprint} />
         </TabPane>
         <TabPane tab="Content Blueprint" key="3">
+          <ClusteredKeywords clusters={blueprint?.ai_topic_clusters} />
           <ContentBlueprint
             blueprint={blueprint}
             overrides={blueprintOverrides}

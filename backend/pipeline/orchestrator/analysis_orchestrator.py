@@ -138,6 +138,29 @@ class AnalysisOrchestrator:
                 live_serp_data, competitor_analysis, content_intelligence
             )
 
+            # NEW: Generate Topic Clusters using all qualified keywords from this run
+            # Fetch all qualified keywords associated with this run from the DB
+            all_qualified_keywords_for_run = self.db_manager.get_keywords_for_run(opportunity_id)
+            qualified_keywords_list = [
+                kw["keyword"] 
+                for kw in all_qualified_keywords_for_run 
+                if kw.get("blog_qualification_status") == "qualified"
+            ]
+
+            ai_topic_clusters, clustering_cost = self.ai_clustering_service.generate_topic_clusters(
+                qualified_keywords_list
+            )
+            total_api_cost += clustering_cost
+            self.job_manager.update_job_status(
+                self.job_manager.get_current_job_id(), # Get current job ID
+                "running",
+                progress=60,
+                result={"step": "AI-Powered Topic Clustering Complete"},
+            )
+
+            # Store clusters in content_intelligence for easier access within blueprint factory
+            content_intelligence["ai_topic_clusters"] = ai_topic_clusters
+
             ai_outline, outline_api_cost = content_analyzer.generate_ai_outline(
                 keyword, live_serp_data, content_intelligence
             )
@@ -156,6 +179,7 @@ class AnalysisOrchestrator:
                 "competitor_analysis": competitor_analysis,
                 "content_intelligence": content_intelligence,
                 "recommended_strategy": recommended_strategy,
+                "ai_topic_clusters": ai_topic_clusters, # Pass clusters to analysis data for blueprint
             }
 
             blueprint = self.blueprint_factory.create_blueprint(

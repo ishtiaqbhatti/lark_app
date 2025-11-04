@@ -1,7 +1,6 @@
 # api/routers/client_settings.py
 # NEW FILE
 import bleach  # ADD THIS LINE
-import json
 from typing import Dict
 from data_access.database_manager import DatabaseManager
 from ..dependencies import get_db, get_orchestrator

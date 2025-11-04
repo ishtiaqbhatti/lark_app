@@ -272,6 +272,33 @@ class ContentAnalyzer:
         content_intelligence: Dict[str, Any],
     ) -> List[Dict[str, str]]:
         """Builds the prompt for the AI structured outline generation."""
+        # Check if AI-generated topic clusters are available in content_intelligence
+        ai_clusters = content_intelligence.get("ai_topic_clusters", [])
+        
+        prompt_core_instruction = ""
+        if ai_clusters:
+            # If AI clusters exist, prioritize them to form the core structure
+            cluster_structure_description = "\n".join([
+                f" - {cluster['topic_name']}: Keywords: {', '.join(cluster['keywords'])}"
+                for cluster in ai_clusters
+            ])
+            prompt_core_instruction = f"""
+            **AI-Generated Core Topic Structure (CRITICAL: Use this as the foundation for your H2s):**
+            {cluster_structure_description}
+
+            **Instructions for Outline Creation:**
+            1.  **Strictly use the `topic_name` from each AI-Generated Core Topic as your primary H2 headings.**
+            2.  For each H2, derive relevant H3 subheadings, possibly from the `keywords` within that cluster and other analysis data provided below.
+            3.  Ensure the article flows logically and covers the keywords within each H2's cluster.
+            """
+            
+        else:
+            # Fallback to previous logic if AI clusters are not available
+            prompt_core_instruction = """
+            **Instructions for Outline Creation:**
+            1. Create a logical flow for the article, starting with an 'Introduction' and ending with a 'Conclusion'.
+            """
+
         prompt = f"""
         You are an expert SEO content strategist. Create a logical and comprehensive content outline for an article about "{keyword}". The output must be a structured list of sections, each with an H2 and a list of corresponding H3 subheadings.
 
@@ -281,11 +308,12 @@ class ContentAnalyzer:
         - **Key Entities to Mention:** {", ".join(content_intelligence.get("key_entities_from_competitors", []))}
         - **People Also Ask Questions to Answer:** {", ".join(serp_overview.get("paa_questions", []))}
 
-        **Instructions:**
-        1. Create a logical flow for the article.
-        2. The first section must be titled 'Introduction'.
-        3. The last section must be titled 'Conclusion'.
-        4. If there are 'People Also Ask' questions, create a dedicated H2 section titled 'Frequently Asked Questions' and use the questions as H3s.
-        5. Structure the entire output as a JSON object matching the requested schema.
+        {prompt_core_instruction}
+
+        **General Outline Rules:**
+        1. The first H2 heading in the output JSON array must be "Introduction".
+        2. The last H2 heading in the output JSON array must be "Conclusion".
+        3. If there are 'People Also Ask' questions, create a dedicated H2 section titled 'Frequently Asked Questions' (if not already present from clusters) and use the questions as H3s.
+        4. Structure the entire output as a JSON object matching the requested schema.
         """
         return [{"role": "user", "content": prompt}]

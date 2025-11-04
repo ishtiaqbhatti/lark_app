@@ -1,7 +1,6 @@
 # backend/pipeline/orchestrator/workflow_orchestrator.py
 import logging
 import traceback
-import threading
 
 logger = logging.getLogger(__name__)
 

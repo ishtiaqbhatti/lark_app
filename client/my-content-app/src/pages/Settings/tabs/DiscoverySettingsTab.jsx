@@ -1,12 +1,44 @@
-// This is a new file. Create it with the following content:
 import React from 'react';
-import { Form, Input, InputNumber, Select, Switch, Checkbox, Slider, Typography, Row, Col, Divider, Tooltip, Space } from 'antd';
+import { Form, Input, InputNumber, Select, Switch, Checkbox, Slider, Typography, Row, Col, Divider, Tooltip, Space, Tabs } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { TabPane } = Tabs;
 
 const DiscoverySettingsTab = ({ settings, form }) => {
+  // Define common intent-specific rules
+  const commonIntentThresholds = [
+    { key: "max_high_top_of_page_bid", label: "Max High Top-of-Page Bid ($)", tooltip: "Maximum average CPC bid for top results. Keywords above this are disqualified. Adjust per intent." },
+    { key: "max_kd_hard_limit", label: "Max Keyword Difficulty", tooltip: "Keywords above this difficulty (0-100) are disqualified. Adjust per intent." },
+    // Add other intent-specific rules here as they are implemented
+  ];
+
+  const renderIntentRules = (intent) => (
+    <Row gutter={16}>
+      {commonIntentThresholds.map(rule => (
+        <Col span={12} key={`${intent}_${rule.key}`}>
+          <Form.Item 
+            name={`${intent}_${rule.key}`} 
+            label={
+              <Space>
+                {rule.label} ({intent.charAt(0).toUpperCase() + intent.slice(1)} Intent)
+                {rule.tooltip && <Tooltip title={rule.tooltip}><InfoCircleOutlined /></Tooltip>}
+              </Space>
+            }
+          >
+            <InputNumber 
+              min={rule.key.includes("bid") ? 0.0 : 0} 
+              max={rule.key.includes("bid") ? 9999.0 : 100} 
+              step={rule.key.includes("bid") ? 0.1 : 1} 
+              style={{ width: '100%' }} 
+            />
+          </Form.Item>
+        </Col>
+      ))}
+    </Row>
+  );
+
   return (
     <>
       <Title level={5}>General Discovery Parameters</Title>
@@ -45,9 +77,9 @@ const DiscoverySettingsTab = ({ settings, form }) => {
           <Form.Item name="discovery_strategies" label="Discovery Strategies">
             <Checkbox.Group
               options={[
-                { label: 'Keyword Ideas (Category-based)', value: 'Keyword Ideas' },
-                { label: 'Keyword Suggestions (Phrase-based)', value: 'Keyword Suggestions' },
-                { label: 'Related Keywords (SERP-based)', value: 'Related Keywords' },
+                { label: 'Keyword Ideas (Category-based)', value: 'keyword_ideas' },
+                { label: 'Keyword Suggestions (Phrase-based)', value: 'keyword_suggestions' },
+                { label: 'Related Keywords (SERP-based)', value: 'related_keywords' },
               ]}
             />
           </Form.Item>
@@ -172,11 +204,30 @@ const DiscoverySettingsTab = ({ settings, form }) => {
           </Form.Item>
         </Col>
         <Col span={24}>
-          <Form.Item name="negative_keywords" label="Negative Keywords" extra="Comma-separated list of keywords to exclude (e.g., free, login)">
+          <Form.Item 
+            name="negative_keywords" 
+            label="Negative Keywords" 
+            extra="Comma-separated list of keywords to exclude (e.g., free, login)"
+          >
             <Input.TextArea rows={2} />
           </Form.Item>
         </Col>
       </Row>
+
+      <Divider />
+      <Title level={5}>Intent-Specific Disqualification Rules (High-CPC / Bids)</Title>
+      <Tabs defaultActiveKey="informational">
+        <TabPane tab="Informational" key="informational">
+          {renderIntentRules('informational')}
+        </TabPane>
+        <TabPane tab="Commercial" key="commercial">
+          {renderIntentRules('commercial')}
+        </TabPane>
+        <TabPane tab="Transactional" key="transactional">
+          {renderIntentRules('transactional')}
+        </TabPane>
+        {/* Add more tabs for other intents or specific rules if needed */}
+      </Tabs>
 
       <Divider /><br/>
       <Title level={5}>SERP & Competitor Analysis Cost Controls</Title><br/>

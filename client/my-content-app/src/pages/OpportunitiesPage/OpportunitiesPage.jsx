@@ -179,7 +179,18 @@ const OpportunitiesPage = () => {
       };
     
       const columns = [
-        { title: 'Keyword', dataIndex: 'keyword', key: 'keyword', sorter: true, render: (text, record) => <a onClick={(e) => { e.stopPropagation(); navigate(`/opportunities/${record.id}`)}}>{text}</a> },
+        {
+          title: 'Keyword',
+          dataIndex: 'keyword',
+          key: 'keyword',
+          sorter: true,
+          render: (text, record) => (
+            <Space>
+              <a onClick={(e) => { e.stopPropagation(); navigate(`/opportunities/${record.id}`)}}>{text}</a>
+              {record.is_question && <Tooltip title="Question Keyword"><QuestionCircleOutlined style={{ color: '#1890ff' }} /></Tooltip>}
+            </Space>
+          )
+        },
         { title: 'Search Volume', dataIndex: 'search_volume', key: 'search_volume', sorter: true, render: (sv) => formatNumber(sv) },
         { title: 'KD', dataIndex: 'keyword_difficulty', key: 'keyword_difficulty', sorter: true, render: (kd) => kd != null ? kd : 'N/A' },
         { 

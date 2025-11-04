@@ -127,46 +127,40 @@ async def start_discovery_run_async(
             detail="You do not have permission to access this client's resources.",
         )
     try:
-        filters = request.filters
-        limit = request.limit or 1000
-        
-        # --- INTELLIGENT DISCOVERY MODE SELECTION ---
-        # The individual API calls will now enforce specific limits and depth=1.
-        # The overall 'depth' for the run is now fixed to 1 as per new requirements.
-        discovery_modes = ["keyword_ideas", "keyword_suggestions", "related_keywords"]
-        depth = 1
-        # --- END OF CHANGE ---
-
+        # Directly use validated and defaulted parameters from the Pydantic model
         parameters = {
             "seed_keywords": request.seed_keywords,
-            "discovery_modes": discovery_modes,
-            "filters": filters,
+            "discovery_modes": request.discovery_modes,
+            "filters": request.filters,
             "order_by": request.order_by,
             "filters_override": request.filters_override,
-            "limit": limit,
-            "depth": depth,
-            "include_clickstream_data": False,  # Hardcoded
-            "closely_variants": False,  # Hardcoded
-            "ignore_synonyms": True,  # Hardcoded
-            "exact_match": True, # Hardcoded
+            "limit": request.limit,
+            "depth": request.depth,
+            "exact_match": request.exact_match,
+            "closely_variants": request.closely_variants,
+            "ignore_synonyms": request.ignore_synonyms,
+            "include_clickstream_data": request.include_clickstream_data,
         }
+
+        # Create a record of the run with its parameters before starting the job
         run_id = discovery_service.create_discovery_run(
             client_id=client_id, parameters=parameters
         )
 
+        # Pass all dynamic parameters to the orchestrator's job function
         job_id = orchestrator.run_discovery_and_save(
-            run_id,
-            request.seed_keywords,
-            discovery_modes,
-            filters,
-            request.order_by,
-            request.filters_override,
-            limit,
-            depth,
-            ignore_synonyms=True,
-            include_clickstream_data=False,
-            closely_variants=False,
-            exact_match=True,
+            run_id=run_id,
+            seed_keywords=request.seed_keywords,
+            discovery_modes=request.discovery_modes,
+            filters=request.filters,
+            order_by=request.order_by,
+            filters_override=request.filters_override,
+            limit=request.limit,
+            depth=request.depth,
+            ignore_synonyms=request.ignore_synonyms,
+            include_clickstream_data=request.include_clickstream_data,
+            closely_variants=request.closely_variants,
+            exact_match=request.exact_match,
         )
         return {"job_id": job_id, "message": f"Discovery run job {job_id} started."}
     except Exception as e:
@@ -241,63 +235,48 @@ async def get_discovery_runs(
 async def rerun_discovery_run(
     run_id: int,
     orchestrator: WorkflowOrchestrator = Depends(get_orchestrator),
-    db: DatabaseManager = Depends(get_db),  # current_client_id dependency removed here
+    db: DatabaseManager = Depends(get_db),
 ):
     """
-    Initiates a new discovery run using the parameters from a previous run.
+    Initiates a new discovery run using the exact parameters from a previous run.
     """
     previous_run = db.get_discovery_run_by_id(run_id)
     if not previous_run:
         raise HTTPException(status_code=404, detail="Discovery run not found.")
 
-    # Authorization check within the function (using orchestrator's client_id)
-    if (
-        previous_run["client_id"] != orchestrator.client_id
-    ):  # Use orchestrator's client_id
+    if previous_run["client_id"] != orchestrator.client_id:
         raise HTTPException(
             status_code=403, detail="You do not have permission to re-run this job."
         )
 
     try:
+        # Extract ALL parameters from the saved run data
         parameters = previous_run.get("parameters", {})
+        
+        # Use .get() with defaults to safely extract all required parameters
         seed_keywords = parameters.get("seed_keywords", [])
-        filters = parameters.get("filters")
-        order_by = parameters.get("order_by")
-        filters_override = parameters.get("filters_override", {})
-        limit = parameters.get("limit")
-        depth = parameters.get("depth")
-
         if not seed_keywords:
             raise HTTPException(
-                status_code=400, detail="No seed keywords found in the original run."
+                status_code=400, detail="No seed keywords found in the original run to re-run."
             )
 
-        # Dynamic discovery logic based on limit
-        limit = limit or 1000
-        discovery_modes = ["keyword_ideas", "keyword_suggestions", "related_keywords"]
+        discovery_modes = parameters.get("discovery_modes", ["keyword_ideas", "keyword_suggestions", "related_keywords"]) # Default should match DiscoveryRunRequest
+        filters = parameters.get("filters")
+        order_by = parameters.get("order_by")
+        filters_override = parameters.get("filters_override")
+        limit = parameters.get("limit", 100) # Ensure defaults match DiscoveryRunRequest
+        depth = parameters.get("depth", 1) # Ensure defaults match DiscoveryRunRequest
+        ignore_synonyms = parameters.get("ignore_synonyms", False)
+        include_clickstream_data = parameters.get("include_clickstream_data", False)
+        closely_variants = parameters.get("closely_variants", False)
+        exact_match = parameters.get("exact_match", False)
 
-        if depth is None:
-            if limit <= 500:
-                depth = 2
-            elif limit <= 2000:
-                depth = 3
-            else:
-                depth = 4
-
-        # Reconstruct parameters for the new run to be created
-        new_run_parameters = {
-            "seed_keywords": seed_keywords,
-            "discovery_modes": discovery_modes,
-            "filters": filters,
-            "order_by": order_by,
-            "filters_override": filters_override,
-            "limit": limit,
-            "depth": depth,
-        }
-
-        new_run_id = orchestrator.db_manager.create_discovery_run(
-            client_id=previous_run["client_id"], parameters=new_run_parameters
+        # Create a new run record in the database with the old parameters
+        new_run_id = db.create_discovery_run(
+            client_id=previous_run["client_id"], parameters=parameters
         )
+        
+        # Start the new job, passing all the extracted parameters
         job_id = orchestrator.run_discovery_and_save(
             new_run_id,
             seed_keywords,
@@ -307,6 +286,10 @@ async def rerun_discovery_run(
             filters_override,
             limit,
             depth,
+            ignore_synonyms,
+            include_clickstream_data,
+            closely_variants,
+            exact_match,
         )
 
         return {

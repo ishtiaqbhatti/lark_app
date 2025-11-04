@@ -13,6 +13,7 @@ from backend.core.blueprint_factory import BlueprintFactory
 from backend.agents.content_auditor import ContentAuditor
 from backend.agents.prompt_assembler import DynamicPromptAssembler
 from backend.services.serp_analysis_service import SerpAnalysisService
+from backend.services.ai_clustering_service import AIClusteringService
 from backend.pipeline.step_03_prioritization.scoring_engine import ScoringEngine
 from backend.pipeline.step_01_discovery.cannibalization_checker import (
     CannibalizationChecker,
@@ -87,3 +88,4 @@ class WorkflowOrchestrator(
         self.content_auditor = ContentAuditor()
         self.prompt_assembler = DynamicPromptAssembler(self.db_manager)
         self.serp_analysis_service = SerpAnalysisService(self.dataforseo_client, self.client_cfg)
+        self.ai_clustering_service = AIClusteringService(self.openai_client, self.client_cfg)

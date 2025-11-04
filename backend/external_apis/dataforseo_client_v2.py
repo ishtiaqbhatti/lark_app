@@ -31,10 +31,6 @@ class DataForSEOClientV2:
     ONPAGE_INSTANT_PAGES = "on_page/instant_pages"
     ONPAGE_CONTENT_PARSING = "on_page/content_parsing/live"  # Add this line
 
-    KEYWORD_IDEAS_MODE_LIMIT = 10
-    KEYWORD_SUGGESTIONS_MODE_LIMIT = 100
-    RELATED_KEYWORDS_MODE_LIMIT = 100
-
     def __init__(
         self,
         login: str,
@@ -906,7 +902,7 @@ class DataForSEOClientV2:
                 "keywords": seed_keywords,
                 "location_code": location_code,
                 "language_code": language_code,
-                "limit": self.KEYWORD_IDEAS_MODE_LIMIT,
+                "limit": limit, # Dynamically assigned
                 "include_serp_info": True,
                 "ignore_synonyms": ignore_synonyms,
                 "closely_variants": closely_variants,
@@ -933,7 +929,7 @@ class DataForSEOClientV2:
                     "keyword": seed_keyword,
                     "location_code": location_code,
                     "language_code": language_code,
-                    "limit": self.KEYWORD_SUGGESTIONS_MODE_LIMIT,
+                    "limit": limit, # Dynamically assigned
                     "include_serp_info": True,
                     "exact_match": exact_match,
                     "ignore_synonyms": ignore_synonyms,
@@ -971,8 +967,8 @@ class DataForSEOClientV2:
                     "keyword": seed,
                     "location_code": location_code,
                     "language_code": language_code,
-                    "depth": 1, # Max to one page for discovery
-                    "limit": self.RELATED_KEYWORDS_MODE_LIMIT,
+                    "depth": depth, # Dynamically assigned
+                    "limit": limit, # Dynamically assigned
                     "include_serp_info": True,
                     "filters": self._prioritize_and_limit_filters(
                         self._convert_filters_to_api_format(filters.get("related"))

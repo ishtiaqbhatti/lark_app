@@ -65,6 +65,7 @@ class BlueprintFactory:
                 "final_qualification_assessment", {}
             ),
             "analysis_notes": analysis_notes,
+            "ai_topic_clusters": analysis_data.get("ai_topic_clusters", []), # NEW: Add ai_topic_clusters here
         }
 
         blueprint_data["executive_summary"] = self._create_executive_summary(

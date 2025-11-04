@@ -1,6 +1,5 @@
 import logging
 import bleach
-import json
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
 from data_access.database_manager import DatabaseManager

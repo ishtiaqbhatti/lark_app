@@ -104,7 +104,7 @@ class SectionalArticleGenerator:
         # 5. Generate Conclusion sequentially after the main body is assembled
         conclusion_html, cost = self.generate_conclusion(opportunity, article_body_html)
         total_cost += cost
-        article_body_html += f"\n<h2>Conclusion</h2>\n"
+        article_body_html += "\n<h2>Conclusion</h2>\n"
         article_body_html += conclusion_html or "<!-- Error generating conclusion -->"
 
         # The method returns the assembled HTML content and the total cost.

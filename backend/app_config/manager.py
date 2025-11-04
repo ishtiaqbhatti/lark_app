@@ -55,8 +55,12 @@ class ConfigManager:
         "max_words_for_ai_analysis": int,
         "num_competitors_for_ai_analysis": int,
         "max_avg_lcp_time": int,  # NEW
+        "informational_max_kd_hard_limit": int, # NEW
+        "commercial_max_kd_hard_limit": int, # NEW
+        "transactional_max_kd_hard_limit": int, # NEW
         "high_value_sv_override_threshold": int,
         "overlay_font_size": int,
+        "max_keywords_for_clustering": int, # NEW
         # Floats
         "informational_score": float,
         "commercial_score": float,
@@ -92,6 +96,9 @@ class ConfigManager:
         "scholarly_summary": float,
         "product_comparison": float,
         "high_value_cpc_override_threshold": float,
+        "informational_max_high_top_of_page_bid": float, # NEW
+        "commercial_max_high_top_of_page_bid": float, # NEW
+        "transactional_max_high_top_of_page_bid": float, # NEW
         # Booleans
         "require_question_keywords": bool,
         "enforce_intent_filter": bool,

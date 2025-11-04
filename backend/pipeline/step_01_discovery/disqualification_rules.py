@@ -192,25 +192,33 @@ def apply_disqualification_rules(
     ) and (keyword_info.get("competition_level") == "HIGH"):
         return True, "Rule 8: Excessive paid competition.", False
 
-    if utils.safe_compare(
-        keyword_info.get("high_top_of_page_bid"),
-        client_cfg.get("max_high_top_of_page_bid", 15.0),
-        "gt",
-    ):
+    # Rule 9: Prohibitively high CPC bids (Intent-Aware)
+    main_intent = intent_info.get("main_intent", "informational")
+    high_bid = keyword_info.get("high_top_of_page_bid", 0.0) or 0.0
+
+    # Get intent-specific threshold, fallback to general if not defined
+    intent_specific_bid_threshold_key = f"{main_intent}_max_high_top_of_page_bid"
+    bid_threshold = client_cfg.get(intent_specific_bid_threshold_key, client_cfg.get("max_high_top_of_page_bid", 15.0))
+
+    if utils.safe_compare(high_bid, bid_threshold, "gt"):
         return (
             True,
-            f"Rule 9: Prohibitively high CPC bids (${client_cfg.get('max_high_top_of_page_bid', 15.00)}).",
+            f"Rule 9: High CPC bid (${high_bid:.2f}) for '{main_intent}' intent exceeds configured limit of ${bid_threshold:.2f}.",
             False,
         )
 
-    if utils.safe_compare(
-        keyword_props.get("keyword_difficulty"),
-        client_cfg.get("max_kd_hard_limit", 70),
-        "gt",
-    ):
+    # Rule 10: Extreme keyword difficulty (Intent-Aware)
+    main_intent = intent_info.get("main_intent", "informational")
+    kd_value = keyword_props.get("keyword_difficulty")
+
+    # Get intent-specific KD threshold, fallback to general if not defined
+    intent_specific_kd_threshold_key = f"{main_intent}_max_kd_hard_limit"
+    kd_threshold = client_cfg.get(intent_specific_kd_threshold_key, client_cfg.get("max_kd_hard_limit", 70))
+
+    if utils.safe_compare(kd_value, kd_threshold, "gt"):
         return (
             True,
-            f"Rule 10: Extreme keyword difficulty (>{client_cfg.get('max_kd_hard_limit', 70)}).",
+            f"Rule 10: Keyword Difficulty ({kd_value}) for '{main_intent}' intent exceeds configured limit of {kd_threshold}.",
             False,
         )
 

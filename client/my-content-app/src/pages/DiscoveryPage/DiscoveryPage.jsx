@@ -1,17 +1,15 @@
 import React, { useState } from 'react';
-import { Layout, Typography, Spin, Alert, Card, Divider, message } from 'antd';
-import { useNavigate } from 'react-router-dom'; // Import useNavigate
+import { Layout, Typography, Spin, Alert, Card, Divider } from 'antd';
+import { useQuery } from 'react-query'; // Import useQuery
 import { useDiscoveryRuns } from './hooks/useDiscoveryRuns';
 import DiscoveryForm from './components/DiscoveryForm';
 import DiscoveryHistory from './components/DiscoveryHistory';
 import { useClient } from '../../hooks/useClient';
-import CostConfirmationModal from '../../components/CostConfirmationModal';
-import { estimateActionCost } from '../../services/orchestratorService';
+import { getClientSettings } from '../../services/clientSettingsService'; // Import the service
+import useDebounce from '../../hooks/useDebounce';
 
 const { Content } = Layout;
 const { Title } = Typography;
-
-import useDebounce from '../../hooks/useDebounce'; // Add this import
 
 const DiscoveryPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -20,7 +18,16 @@ const DiscoveryPage = () => {
 
   const { runs, totalRuns, page, setPage, isLoading, isError, error, startRunMutation, rerunMutation } = useDiscoveryRuns(debouncedSearchQuery, dateRange);
   const { clientId } = useClient();
-  const navigate = useNavigate(); // Initialize navigate
+
+  // Fetch client settings to use as defaults for the form
+  const { data: clientSettings, isLoading: isLoadingSettings } = useQuery(
+    ['clientSettings', clientId],
+    () => getClientSettings(clientId),
+    {
+      enabled: !!clientId,
+      staleTime: 5 * 60 * 1000, // Cache settings for 5 minutes
+    }
+  );
 
   const handleRerun = (runId) => {
       rerunMutation.mutate(runId);
@@ -28,15 +35,15 @@ const DiscoveryPage = () => {
 
   const handleSearchChange = (query) => {
     setSearchQuery(query);
-    setPage(1); // Reset to first page on new search
+    setPage(1);
   };
 
   const handleDateChange = (dates) => {
     setDateRange(dates);
-    setPage(1); // Reset to first page on date change
+    setPage(1);
   };
 
-  if (isLoading) {
+  if (isLoading || isLoadingSettings) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
         <Spin size="large" tip="Loading Discovery Hub..." />
@@ -67,6 +74,8 @@ const DiscoveryPage = () => {
               onSubmit={({ runData }) => {
                 startRunMutation.mutate({ clientId, runData });
               }}
+              settings={clientSettings}
+              isLoadingSettings={isLoadingSettings}
             />
           </Card>
 

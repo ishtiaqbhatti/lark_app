@@ -10,7 +10,7 @@ from pipeline.step_01_discovery.disqualification_rules import (
 from pipeline.step_01_discovery.cannibalization_checker import CannibalizationChecker
 from pipeline.step_03_prioritization.scoring_engine import ScoringEngine
 from pipeline.step_01_discovery.blog_content_qualifier import assign_status_from_score
-from backend.services.serp_analysis_service import SerpAnalysisService
+from backend.core import utils
 
 
 def run_discovery_phase(
@@ -69,16 +69,16 @@ def run_discovery_phase(
         "serp_info",
         "search_intent_info",
     ]
-
     for opp in all_expanded_keywords:
+        keyword = opp.get("keyword")
+        # NEW: Add is_question flag
+        opp["is_question"] = utils.is_question_keyword(opp.get("keyword", ""))
         # Pre-validation of opportunity structure
         missing_keys = [
             key for key in required_keys if key not in opp or opp[key] is None
         ]
         if missing_keys:
-            logger.warning(
-                f"Skipping opportunity '{opp.get('keyword')}' due to missing required data: {', '.join(missing_keys)}"
-            )
+
             continue
 
         # 3. Apply Hard Disqualification Rules (Cannibalization, Negative Keywords, etc.)

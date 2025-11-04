@@ -25,16 +25,16 @@ class ImageRegenRequest(BaseModel):
 
 class DiscoveryRunRequest(BaseModel):
     seed_keywords: List[str]
-    discovery_modes: Optional[List[str]] = ["ideas"]
-    filters: Optional[List[Any]] = None
-    order_by: Optional[List[str]] = None
-    filters_override: Optional[Dict[str, Any]] = {}
-    depth: Optional[int] = None
-    limit: Optional[int] = None
-    ignore_synonyms: Optional[bool] = False
-    # NEW: Parameters for user flexibility
-    include_clickstream_data: Optional[bool] = None
-    closely_variants: Optional[bool] = None
+    discovery_modes: Optional[List[str]] = Field(["keyword_ideas", "keyword_suggestions", "related_keywords"], description="List of DataForSEO Labs discovery modes to use.")
+    filters: Optional[List[Any]] = Field(None, description="List of DataForSEO API filters to apply.")
+    order_by: Optional[List[str]] = Field(None, description="List of DataForSEO API sorting rules.")
+    filters_override: Optional[Dict[str, Any]] = Field({}, description="Key-value pairs to override specific client settings during discovery.")
+    limit: Optional[int] = Field(100, ge=10, le=1000, description="Maximum number of keywords to return from each API source.")
+    depth: Optional[int] = Field(1, ge=1, le=4, description="Discovery depth for 'Related Keywords' API (1-4).")
+    exact_match: Optional[bool] = Field(False, description="If true, 'Keyword Suggestions' will only return exact phrase matches.")
+    ignore_synonyms: Optional[bool] = Field(False, description="If true, exclude highly similar keywords from results.")
+    include_clickstream_data: Optional[bool] = Field(False, description="If true, include clickstream-based metrics (doubles cost).")
+    closely_variants: Optional[bool] = Field(False, description="If true, 'Keyword Ideas' uses phrase-match algorithm; otherwise, broad-match.")
 
 
 class KeywordListRequest(BaseModel):

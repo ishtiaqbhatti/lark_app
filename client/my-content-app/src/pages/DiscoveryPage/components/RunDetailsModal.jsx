@@ -2,6 +2,7 @@ import React from 'react';
 import { Modal, Tag, Row, Col, Descriptions, Statistic, Steps, Card, Typography } from 'antd';
 import { formatDistanceStrict } from 'date-fns';
 import PieChartCard from './PieChartCard';
+import DiscoveryStatsBreakdown from './DiscoveryStatsBreakdown'; 
 
 const { Title, Text } = Typography;
 const { Step } = Steps;
@@ -37,6 +38,13 @@ const RunDetailsModal = ({ run, open, onCancel }) => {
   } = results_summary;
 
   const statusInfo = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+
+  const expandedRowRender = (record) => {
+    if (!record.results_summary) {
+      return <Text type="secondary">No detailed summary available for this run.</Text>;
+    }
+    return <DiscoveryStatsBreakdown summary={record.results_summary} runId={record.id} />;
+  };
 
   return (
     <Modal
@@ -78,6 +86,23 @@ const RunDetailsModal = ({ run, open, onCancel }) => {
             <Descriptions bordered column={1} size="small">
               <Descriptions.Item label="Seed Keywords">
                 {(parameters.seed_keywords || []).map(kw => <Tag key={kw}>{kw}</Tag>)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Discovery Modes">
+                {(parameters.discovery_modes || []).map(mode => <Tag key={mode} color="blue">{mode.replace(/_/g, ' ')}</Tag>)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Max Keywords per Source">{parameters.limit || 'Default'}</Descriptions.Item>
+              <Descriptions.Item label="Related Keywords Depth">{parameters.depth || 'Default'}</Descriptions.Item>
+              <Descriptions.Item label="Use Exact Match (Suggestions)">
+                {parameters.exact_match ? 'Enabled' : 'Disabled'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Ignore Synonyms">
+                {parameters.ignore_synonyms ? 'Enabled' : 'Disabled'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Closely Variants">
+                {parameters.closely_variants ? 'Enabled' : 'Disabled'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Include Clickstream Data">
+                {parameters.include_clickstream_data ? 'Enabled' : 'Disabled'}
               </Descriptions.Item>
               {Object.entries(parameters.filters_override || {}).map(([key, value]) => (
                 <Descriptions.Item key={key} label={key.replace(/_/g, ' ')}>{String(value)}</Descriptions.Item>

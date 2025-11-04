@@ -472,8 +472,8 @@ class DatabaseManager:
                             full_data,
                             cpc, competition, main_intent, search_volume_trend_json,
                             competitor_social_media_tags_json, competitor_page_timing_json,
-                        social_media_posts_status, search_volume, keyword_difficulty
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        social_media_posts_status, search_volume, keyword_difficulty, ai_topic_clusters, is_question
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                         (
                             keyword,
@@ -514,6 +514,8 @@ class DatabaseManager:
                             opp.get("social_media_posts_status", "draft"),
                             keyword_info.get("search_volume"),
                             keyword_properties.get("keyword_difficulty"),
+                            json.dumps(full_data_copy.get("ai_topic_clusters", [])),
+                            opp.get("is_question", False),
                         ),
                     )
 
@@ -997,7 +999,8 @@ class DatabaseManager:
                     "onpage_validate_micromarkup",
                     "discovery_replace_with_core_keyword",
                     "discovery_ignore_synonyms",
-                    "enable_automated_internal_linking",  # NEW
+                    "enable_automated_internal_linking",
+                    "discovery_exact_match", # NEW
                 ]
                 for key in bool_keys:
                     if settings.get(key) is not None:
@@ -1044,8 +1047,14 @@ class DatabaseManager:
                     "max_non_blog_results",
                     "max_ai_overview_words",
                     "max_first_organic_y_pixel",
-                    "max_words_for_ai_analysis",  # NEW
-                    "max_avg_lcp_time",  # NEW
+                    "max_words_for_ai_analysis",
+                    "max_avg_lcp_time",
+                    "discovery_max_pages", # NEW
+                    "serp_freshness_old_threshold_days", # NEW
+                    "serp_volatility_stable_threshold_days", # NEW
+                    "informational_max_kd_hard_limit", # NEW
+                    "commercial_max_kd_hard_limit", # NEW
+                    "transactional_max_kd_hard_limit", # NEW
                 ]
                 for key in int_keys:
                     if settings.get(key) is not None:
@@ -1073,6 +1082,9 @@ class DatabaseManager:
                     "max_pages_to_domain_ratio",
                     "ai_generation_temperature",  # NEW
                     "recommended_word_count_multiplier",  # NEW
+                    "informational_max_high_top_of_page_bid", # NEW
+                    "commercial_max_high_top_of_page_bid", # NEW
+                    "transactional_max_high_top_of_page_bid", # NEW
                 ]
                 for key in float_keys:
                     if settings.get(key) is not None:

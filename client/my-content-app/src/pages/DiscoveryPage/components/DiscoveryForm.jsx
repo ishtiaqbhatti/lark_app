@@ -1,34 +1,36 @@
 import React from 'react';
-import { Input, Button, Typography, Form, Row, Col, InputNumber, Select, Card, Tooltip, Divider } from 'antd';
+import { Input, Button, Typography, Form, Row, Col, InputNumber, Select, Card, Tooltip, Divider, Collapse, Slider, Switch, Space } from 'antd';
 import { RocketOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { Panel } = Collapse;
 
-const DiscoveryForm = ({ isSubmitting, onSubmit }) => {
+const DiscoveryForm = ({ isSubmitting, onSubmit, settings, isLoadingSettings }) => {
   const [form] = Form.useForm();
 
-  const onFinish = (values) => {
-    const { keyword, search_volume_value, difficulty_value, competition_level, search_intent } = values;
+  // Set initial values from settings once they are loaded
+  React.useEffect(() => {
+    if (settings) {
+      form.setFieldsValue({
+        limit: settings.discovery_max_pages || 100, // Default to 100 if not set in DB/config
+        depth: settings.discovery_related_depth || 1, // Default to 1 if not set
+        exact_match: settings.discovery_exact_match || false, // Default to false if not set
+        // Add other initial values from settings here if needed
+      });
+    }
+  }, [settings, form]);
 
-    const filters = [];
-    const filterPathPrefix = 'keyword_data.';
-    if (search_volume_value !== undefined && search_volume_value !== null) {
-      filters.push({ field: `${filterPathPrefix}keyword_info.search_volume`, operator: '>', value: search_volume_value });
-    }
-    if (difficulty_value !== undefined && difficulty_value !== null) {
-      filters.push({ field: `${filterPathPrefix}keyword_properties.keyword_difficulty`, operator: '<', value: difficulty_value });
-    }
-    if (competition_level && competition_level.length > 0) {
-      filters.push({ field: `${filterPathPrefix}keyword_info.competition_level`, operator: 'in', value: competition_level });
-    }
-    if (search_intent && search_intent.length > 0) {
-      filters.push({ field: `${filterPathPrefix}search_intent_info.main_intent`, operator: 'in', value: search_intent });
-    }
+  const onFinish = (values) => {
+    const { seed_keywords, filters_simple, limit, depth, exact_match } = values;
 
     const runData = {
-      seed_keywords: [keyword],
-      filters: filters.length > 0 ? filters : null,
+      seed_keywords: seed_keywords,
+      filters: filters_simple || [], // Placeholder for eventual FilterBuilder integration
+      limit: limit,
+      depth: depth,
+      exact_match: exact_match,
+      // Add other advanced parameters here as they are added to the form
     };
     
     onSubmit({ runData });
@@ -36,98 +38,84 @@ const DiscoveryForm = ({ isSubmitting, onSubmit }) => {
 
   return (
     <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{
-      search_volume_value: 500,
-      difficulty_value: 20,
-      competition_level: ['LOW'],
-      search_intent: ['informational'],
+      // Default values before settings are loaded
+      limit: 100,
+      depth: 1,
+      exact_match: false,
     }}>
       <Title level={3}>Start a New Discovery Run</Title>
       <Text type="secondary" style={{ marginBottom: '24px', display: 'block' }}>
-        Enter a broad topic or a specific keyword to begin exploring related content opportunities.
+        Enter one or more seed keywords to begin exploring related content opportunities.
       </Text>
 
       <Form.Item 
-        name="keyword" 
-        rules={[{ required: true, message: 'Please enter a seed keyword.' }]}
-        label={<Title level={4}>Seed Keyword</Title>}
+        name="seed_keywords" 
+        rules={[{ required: true, message: 'Please enter at least one seed keyword.' }]}
+        label={<Title level={4}>Seed Keywords</Title>}
       >
-        <Input placeholder="e.g., 'AI in marketing' or 'how to start a blog'" size="large" />
+        <Select
+          mode="tags"
+          style={{ width: '100%' }}
+          placeholder="Type a keyword and press Enter (e.g., 'AI in marketing')"
+          size="large"
+          tokenSeparators={[',']}
+        />
       </Form.Item>
       
-      <Divider orientation="left" style={{ color: 'rgba(0,0,0,.55)', fontSize: '16px', marginTop: '32px' }}>
-        Fine-tune with Filters (Optional)
-      </Divider>
-        <Row gutter={24}>
-          <Col xs={24} sm={12}>
-            <Form.Item 
-              name="search_volume_value" 
-              label={
-                <span>
-                  Monthly Search Volume (Greater than) 
-                  <Tooltip title="Only find keywords with at least this many monthly searches.">
-                    <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)' }} />
-                  </Tooltip>
-                </span>
-              }
-            >
-              <InputNumber style={{ width: '100%' }} placeholder="e.g., 500" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Form.Item 
-              name="difficulty_value" 
-              label={
-                <span>
-                  SEO Difficulty (Less than) 
-                  <Tooltip title="Only find keywords with a difficulty score below this value (0-100).">
-                    <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)' }} />
-                  </Tooltip>
-                </span>
-              }
-            >
-              <InputNumber style={{ width: '100%' }} placeholder="e.g., 20" min={0} max={100} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Form.Item 
-              name="competition_level" 
-              label={
-                <span>
-                  Competition Level 
-                  <Tooltip title="Filter by the level of competition for paid ads.">
-                    <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)' }} />
-                  </Tooltip>
-                </span>
-              }
-            >
-              <Select mode="multiple" placeholder="Any" allowClear>
-                <Option value="LOW">Low</Option>
-                <Option value="MEDIUM">Medium</Option>
-                <Option value="HIGH">High</Option>
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Form.Item 
-              name="search_intent" 
-              label={
-                <span>
-                  Search Intent 
-                  <Tooltip title="Filter for keywords based on the user's goal (e.g., to learn, to buy).">
-                    <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)' }} />
-                  </Tooltip>
-                </span>
-              }
-            >
-              <Select mode="multiple" placeholder="Any" allowClear>
-                <Option value="informational">Informational</Option>
-                <Option value="commercial">Commercial</Option>
-                <Option value="transactional">Transactional</Option>
-                <Option value="navigational">Navigational</Option>
-              </Select>
-            </Form.Item>
-          </Col>
-        </Row>
+      <Collapse ghost>
+        <Panel header="Advanced Run Settings" key="1">
+            <Row gutter={24}>
+              <Col xs={24} sm={12}>
+                <Form.Item 
+                  name="limit" 
+                  label={
+                    <Space>
+                      Max Keywords per Source
+                      <Tooltip title="Set the maximum number of keywords to fetch from each API source (max 1000). Higher values increase cost and discovery breadth.">
+                        <QuestionCircleOutlined />
+                      </Tooltip>
+                    </Space>
+                  }
+                  rules={[{ required: true, message: 'Limit is required.'}, { type: 'number', min: 10, max: 1000, message: 'Limit must be between 10 and 1000.'}]}
+                >
+                  <InputNumber style={{ width: '100%' }} min={10} max={1000} step={50} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item 
+                  name="depth" 
+                  label={
+                    <Space>
+                      Related Keywords Depth
+                      <Tooltip title="Set the discovery depth for the 'Related Keywords' API. A higher depth (max 4) finds exponentially more niche keywords but increases cost.">
+                        <QuestionCircleOutlined />
+                      </Tooltip>
+                    </Space>
+                  }
+                  rules={[{ required: true, message: 'Depth is required.'}, { type: 'number', min: 1, max: 4, message: 'Depth must be between 1 and 4.'}]}
+                >
+                  <Slider min={1} max={4} marks={{ 1: 'Shallow', 2: 'Medium', 3: 'Deep', 4: 'Max' }} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item 
+                  name="exact_match" 
+                  label={
+                    <Space>
+                      Use Exact Match (for Suggestions)
+                      <Tooltip title="If enabled, the 'Keyword Suggestions' API will only return phrases that contain your exact seed keyword. Disable for broader, semantic suggestions.">
+                        <QuestionCircleOutlined />
+                      </Tooltip>
+                    </Space>
+                  }
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+              </Col>
+            </Row>
+        </Panel>
+      </Collapse>
 
       <Form.Item style={{ marginTop: '32px', marginBottom: 0 }}>
         <Button type="primary" htmlType="submit" icon={<RocketOutlined />} loading={isSubmitting} size="large" block>

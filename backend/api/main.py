@@ -5,16 +5,8 @@ from fastapi.staticfiles import StaticFiles  # ADD THIS for Task 3
 import logging
 import os
 import sys
-
-# Add project root to sys.path to resolve imports from agents, pipeline, etc.
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-# Import from your existing project structure
-from app_config.manager import ConfigManager
-from data_access.database_manager import DatabaseManager
-from jobs import JobManager  # Import the class
-
 from . import globals as api_globals
+
 
 
 logger = logging.getLogger(__name__)
