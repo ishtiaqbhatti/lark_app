@@ -101,7 +101,13 @@ def run_discovery_phase(
             opp["score_breakdown"] = breakdown
 
             # 5. Assign Status based on Strategic Score
-            status, reason = assign_status_from_score(opp, score, client_cfg)
+            if score >= client_cfg.get("qualified_threshold", 70):
+                status = "qualified"
+                reason = "Qualified: High strategic score."
+            else:
+                status = "review"
+                reason = "Review: Moderate strategic score."
+            
             opp["status"] = status
             opp["blog_qualification_status"] = status
             opp["blog_qualification_reason"] = reason

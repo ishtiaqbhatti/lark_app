@@ -115,7 +115,7 @@ const OpportunityDetailPageV2 = () => {
             <TabPane tab="Article" key="article">
               <ArticlePreview
                 aiContent={ai_content}
-                featuredImagePath={opportunity.featured_image_local_path}
+                finalPackage={opportunity.final_package_json}
               />
             </TabPane>
             <TabPane tab="Social Media" key="social">

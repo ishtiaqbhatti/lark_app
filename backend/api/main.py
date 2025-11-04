@@ -25,7 +25,7 @@ app = FastAPI()
 # Mount the static directory for generated images
 # Images will be accessible at /api/images/{filename}
 static_images_path = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "generated_images")
+    os.path.join(os.path.dirname(__file__), "..", "..", "generated_images")
 )
 app.mount(
     "/api/images", StaticFiles(directory=static_images_path), name="static_images"

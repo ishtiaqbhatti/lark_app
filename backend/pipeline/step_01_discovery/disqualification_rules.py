@@ -19,6 +19,7 @@ def apply_disqualification_rules(
     Reads all thresholds from client_cfg.
     Returns (is_disqualified, reason, is_hard_stop).
     """
+    logging.getLogger(__name__).info("Strategic score is not used for disqualification.")
     keyword = opportunity.get("keyword", "Unknown Keyword")
 
     # --- Failsafe Validation ---

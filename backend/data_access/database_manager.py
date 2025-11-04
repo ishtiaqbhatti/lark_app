@@ -1707,6 +1707,12 @@ class DatabaseManager:
             )
             final_package["article_html_final"] = clean_html
 
+        # Add featured_image_relative_path to final_package
+        if featured_image_data and featured_image_data.get("local_path"):
+            final_package["featured_image_relative_path"] = f"/api/images/{os.path.basename(featured_image_data['local_path'])}"
+        else:
+            final_package["featured_image_relative_path"] = None
+
         conn = self._get_conn()
         with conn:
             conn.execute(

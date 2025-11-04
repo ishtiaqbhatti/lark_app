@@ -2,6 +2,7 @@
 import logging
 import traceback
 from typing import Dict, Any, List, Optional
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -153,8 +154,17 @@ class ContentOrchestrator:
                 self.logger.warning(f"Audit failed attempt {attempt + 1}. Issues: {len(structured_issues)}. Self-healing.")
                 # ... (self-healing logic from original function) ...
 
+            # --- In-Article Image Generation ---
+            image_prompts = re.findall(r'\[\[IMAGE: (.*?)\]\]', current_html)
+            in_article_images_data = []
+            if image_prompts:
+                self.job_manager.update_job_status(job_id, "running", progress=85, result={"step": "Generating In-Article Images"})
+                in_article_images_data, image_cost = self.image_generator.generate_images_from_prompts(image_prompts)
+                total_api_cost += image_cost
+
             opportunity["ai_content"]["article_body_html"] = current_html
             opportunity["ai_content"]["audit_results"] = final_audit_results
+            opportunity['featured_image_data'] = featured_image_data
 
             # --- Final Formatting and Saving ---
             self.job_manager.update_job_status(job_id, "running", progress=90, result={"step": "Final Formatting"})
@@ -162,7 +172,7 @@ class ContentOrchestrator:
             final_package = self.html_formatter.format_final_package(
                 opportunity,
                 internal_linking_suggestions=[], # Disabled
-                in_article_images_data=[],
+                in_article_images_data=in_article_images_data,
             )
 
             self.job_manager.update_job_status(job_id, "running", progress=95, result={"step": "Saving to Database"})
@@ -171,7 +181,7 @@ class ContentOrchestrator:
                 opportunity["ai_content"],
                 self.client_cfg.get("ai_content_model", "gpt-4o"),
                 featured_image_data,
-                [],
+                in_article_images_data,
                 [], # Disabled social posts
                 final_package,
                 total_api_cost,

@@ -4,12 +4,13 @@ import NoData from './NoData';
 
 const { Title, Paragraph } = Typography;
 
-const ArticlePreview = ({ aiContent, featuredImagePath }) => {
+const ArticlePreview = ({ aiContent, finalPackage }) => {
   if (!aiContent) {
     return <NoData description="No article content has been generated yet." />;
   }
 
   const { article_title, article_body_html } = aiContent;
+  const featuredImagePath = finalPackage?.featured_image_relative_path;
 
   return (
     <Card>
@@ -18,7 +19,7 @@ const ArticlePreview = ({ aiContent, featuredImagePath }) => {
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
           <Image
             width="50%"
-            src={`/api/images/${featuredImagePath.split('/').pop()}`}
+            src={featuredImagePath}
             alt={article_title}
           />
         </div>

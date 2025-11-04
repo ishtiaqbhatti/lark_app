@@ -18,9 +18,7 @@ def assign_status_from_score(
         return "rejected", reason
 
     # If not hard-stopped, categorize based on the strategic score.
-    if score >= client_cfg.get("qualified_threshold", 70):
+    if score >= client_cfg.get("qualified_threshold", 90):
         return "qualified", "Qualified: High strategic score."
-    elif score >= client_cfg.get("review_threshold", 50):
-        return "review", "Review: Moderate strategic score."
     else:
-        return "rejected", f"Rejected: Low strategic score ({score:.1f})."
+        return "review", f"Review: Moderate strategic score ({score:.1f})."

@@ -172,6 +172,40 @@ class HtmlFormatter:
 
         return {"@context": "https://schema.org", "@graph": schema_graph}
 
+    def _replace_image_placeholders(
+        self, soup: BeautifulSoup, in_article_images_data: List[Dict[str, Any]]
+    ) -> None:
+        """Replaces [[IMAGE: ...]] placeholders with actual <img> tags."""
+        if not in_article_images_data:
+            return
+
+        image_data_map = {
+            item["original_prompt"]: item for item in in_article_images_data
+        }
+
+        for p_tag in soup.find_all("p", string=re.compile(r"\[\[IMAGE: (.*?)\]\]")):
+            placeholder_text = p_tag.get_text()
+            match = re.search(r"\[\[IMAGE: (.*?)\]\]", placeholder_text)
+            if not match:
+                continue
+
+            prompt = match.group(1).strip()
+            image_info = image_data_map.get(prompt)
+
+            if image_info and image_info.get("local_path"):
+                relative_path = f"/api/images/{os.path.basename(image_info['local_path'])}"
+                img_tag = soup.new_tag(
+                    "img",
+                    src=relative_path,
+                    alt=image_info.get("alt_text", prompt),
+                    **{"class": "in-article-image"},
+                )
+                # Replace the entire paragraph with the image
+                p_tag.replace_with(img_tag)
+            else:
+                # If no image was found, remove the placeholder paragraph to keep the HTML clean
+                p_tag.decompose()
+
     def format_final_package(
         self,
         opportunity: Dict[str, Any],
@@ -181,7 +215,6 @@ class HtmlFormatter:
         """
         Constructs the final content package, now including schema generation.
         """
-        # ... (existing code for html_body_str, soup creation, internal linking, ToC, etc.) ...
         ai_content = opportunity.get("ai_content", {})
         client_cfg = opportunity.get("client_cfg", {})
         html_body_str = ai_content.get("article_body_html", "")
@@ -193,7 +226,8 @@ class HtmlFormatter:
         if client_cfg.get("generate_toc", True):
             self._generate_toc(soup)
 
-        # ... (image replacement logic) ...
+        if in_article_images_data:
+            self._replace_image_placeholders(soup, in_article_images_data)
 
         article_html_final = (
             str(soup.body.decode_contents()) if soup.body else str(soup)
@@ -213,7 +247,7 @@ class HtmlFormatter:
             "meta_title": ai_content.get("meta_title", "No Title"),
             "meta_description": ai_content.get("meta_description", ""),
             "article_html_final": article_html_final,
-            "schema_org_json": schema_org_json,  # Add the generated schema to the final package
+            "schema_org_json": schema_org_json,
             "featured_image_path": featured_image.get("local_path"),
             "featured_image_relative_path": featured_image_relative_path,
             "social_media_posts": opportunity.get("social_media_posts_json", []),

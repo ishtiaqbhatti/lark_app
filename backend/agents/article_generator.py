@@ -60,21 +60,33 @@ class SectionalArticleGenerator:
 
         total_cost = 0.0
         blueprint = opportunity.get("blueprint", {})
+        brief = blueprint.get("ai_content_brief", {})
+        target_word_count = brief.get("target_word_count", 2000)
+        
         content_intelligence = blueprint.get("content_intelligence", {})
         article_structure = content_intelligence.get("article_structure", [])
         
         generated_content = {}
 
+        # Calculate word counts for each section
+        intro_word_count = 150
+        conclusion_word_count = 100
+        body_sections = [s for s in article_structure if s.get("h2", "").lower().strip() not in ["introduction", "conclusion"]]
+        
+        if len(body_sections) > 0:
+            remaining_word_count = target_word_count - intro_word_count - conclusion_word_count
+            word_count_per_section = max(50, int(remaining_word_count / len(body_sections)))
+        else:
+            word_count_per_section = 0
+
         with ThreadPoolExecutor(max_workers=10) as executor:
             future_to_section = {}
 
             # 1. Submit Introduction task
-            intro_future = executor.submit(self.generate_introduction, opportunity)
+            intro_future = executor.submit(self.generate_introduction, opportunity, intro_word_count)
             future_to_section[intro_future] = "introduction"
 
             # 2. Submit Body Section tasks
-            body_sections = [s for s in article_structure if s.get("h2", "").lower().strip() not in ["introduction", "conclusion"]]
-            
             for i, section in enumerate(body_sections):
                 section_title = section.get("h2")
                 if not section_title:
@@ -90,7 +102,8 @@ class SectionalArticleGenerator:
                     section_title,
                     sub_points, 
                     previous_title,
-                    next_title
+                    next_title,
+                    word_count_per_section
                 )
                 future_to_section[section_future] = section_title
 
@@ -114,7 +127,7 @@ class SectionalArticleGenerator:
                 article_body_html += generated_content.get(section_title, "")
 
         # 5. Generate Conclusion sequentially after the main body is assembled
-        conclusion_html, cost = self.generate_conclusion(opportunity, article_body_html)
+        conclusion_html, cost = self.generate_conclusion(opportunity, article_body_html, conclusion_word_count)
         total_cost += cost
         article_body_html += f"\n<h2>Conclusion</h2>\n"
         article_body_html += conclusion_html or "<!-- Error generating conclusion -->"
@@ -130,6 +143,7 @@ class SectionalArticleGenerator:
         section_sub_points: List[str],
         previous_section_title: str,
         next_section_title: str,
+        word_count: int,
     ) -> Tuple[Optional[str], float]:
         """Generates a single article section with context about surrounding sections."""
         brief = opportunity.get("blueprint", {}).get("ai_content_brief", {})
@@ -137,6 +151,7 @@ class SectionalArticleGenerator:
         You are an expert SEO content writer and subject matter expert. Your task is to write a single, detailed section for a blog post about "{opportunity["keyword"]}".
 
         **Current Section to Write:** "{section_title}"
+        **Target Word Count for this section:** Approximately {word_count} words.
         **Key Sub-points to cover in this section:** {", ".join(section_sub_points) if section_sub_points else "N/A"}
         
         **Context of surrounding sections:**
@@ -144,7 +159,7 @@ class SectionalArticleGenerator:
         - The next section will be about: "{next_section_title}"
 
         **Instructions:**
-        - Write a comprehensive, in-depth section covering the topic "{section_title}".
+        - Write a comprehensive, in-depth section covering the topic "{section_title}" with a word count of around {word_count} words.
         - If provided, elaborate on all key sub-points, using them to structure the section's content.
         - Ensure your writing is aware of the surrounding topics to maintain a logical flow.
         - Incorporate relevant entities and demonstrate expertise by using practical examples or insights.
@@ -160,12 +175,12 @@ class SectionalArticleGenerator:
         )
 
     def generate_introduction(
-        self, opportunity: Dict[str, Any]
+        self, opportunity: Dict[str, Any], word_count: int
     ) -> Tuple[Optional[str], float]:
         brief = opportunity.get("blueprint", {}).get("ai_content_brief", {})
         prompt = f"""
         You are an expert copywriter. Write a compelling and hook-driven introduction for a blog post titled "{opportunity["keyword"]}".
-        The introduction should be 2-3 paragraphs.
+        The introduction should be 2-3 paragraphs and approximately {word_count} words.
         - Immediately grab the reader's attention with a relatable problem or surprising statistic.
         - Briefly state the core problem or question the article will solve and why it matters.
         - End with a transition that clearly outlines what the reader will learn.
@@ -180,12 +195,12 @@ class SectionalArticleGenerator:
         )
 
     def generate_conclusion(
-        self, opportunity: Dict[str, Any], full_article_context: str
+        self, opportunity: Dict[str, Any], full_article_context: str, word_count: int
     ) -> Tuple[Optional[str], float]:
         cta_url = opportunity.get("client_cfg", {}).get("default_cta_url", "#")
         prompt = f"""
         You are an expert copywriter. Write a powerful conclusion for the following blog post.
-        The conclusion should be 2 paragraphs.
+        The conclusion should be 2 paragraphs and approximately {word_count} words.
         - Briefly summarize the most important takeaways from the article.
         - Provide a final, actionable thought or encouragement for the reader.
         - End with a compelling call-to-action that encourages the reader to visit {cta_url}.
