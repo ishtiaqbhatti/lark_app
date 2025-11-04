@@ -21,8 +21,11 @@ class AnalysisOrchestrator:
             }
 
         keyword = opportunity.get("keyword")
+        # NEW: Retrieve discovery_goal from opportunity parameters
+        discovery_goal = opportunity.get("parameters", {}).get("discovery_goal")
+
         self.logger.info(
-            f"--- Orchestrator: Starting Full Analysis for '{keyword}' ---"
+            f"--- Orchestrator: Starting Full Analysis for '{keyword}' (Goal: {discovery_goal}) ---"
         )
         self.db_manager.update_opportunity_workflow_state(
             opportunity_id, "analysis_started", "in_progress"
@@ -39,7 +42,7 @@ class AnalysisOrchestrator:
                 serp_api_cost = 0.0
             else:
                 self.logger.info(f"Running live SERP data fetch for '{keyword}'...")
-                from core.serp_analyzer import FullSerpAnalyzer
+                # from core.serp_analyzer import FullSerpAnalyzer # Already imported if needed for direct use.
 
                 serp_analyzer = FullSerpAnalyzer(
                     self.dataforseo_client, self.client_cfg
@@ -164,6 +167,7 @@ class AnalysisOrchestrator:
                 analysis_data=analysis_data,
                 total_api_cost=total_api_cost,
                 client_id=opportunity.get("client_id"),
+                discovery_goal=discovery_goal, # NEW: Pass discovery_goal to blueprint factory
             )
 
             opportunity["blueprint"] = blueprint

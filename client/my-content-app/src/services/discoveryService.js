@@ -52,3 +52,8 @@ export const getDiscoveryRunById = async (runId) => {
   const response = await apiClient.get(`/api/discovery-runs/${runId}`);
   return response;
 };
+
+// NEW: Add this function
+export const getDiscoveryGoalsAndDefaults = () => {
+  return apiClient.get('/api/discovery/goals-and-defaults');
+};

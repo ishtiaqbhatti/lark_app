@@ -4,18 +4,6 @@ from typing import List, Dict, Any, Optional
 
 
 @dataclass
-class KeywordData:
-    keyword: str
-    search_volume: int
-    keyword_difficulty: int
-    main_intent: str
-    cpc: float
-    search_volume_trend: Optional[Dict[str, Any]] = None
-    core_keyword: Optional[str] = None
-    # Add other fields as they come from DataForSEO API
-
-
-@dataclass
 class CompetitorPage:
     url: str
     rank: int
@@ -25,20 +13,6 @@ class CompetitorPage:
     headings: Dict[str, List[str]] = field(default_factory=dict)
     full_content_plain_text: Optional[str] = None
     error: Optional[str] = None
-
-
-@dataclass
-class SerpOverview:
-    serp_has_featured_snippet: bool
-    serp_has_video_results: bool
-    serp_has_ai_overview: bool
-    people_also_ask: List[str] = field(default_factory=list)
-    ai_overview_content: Optional[str] = None
-    featured_snippet_content: Optional[str] = None
-    avg_referring_domains_top5_organic: Optional[float] = None
-    avg_main_domain_rank_top5_organic: Optional[float] = None
-    serp_last_updated_days_ago: Optional[int] = None
-    dominant_content_format: Optional[str] = None
 
 
 @dataclass

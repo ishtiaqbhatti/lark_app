@@ -1,163 +1,104 @@
 # pipeline/step_01_discovery/keyword_discovery/filters.py
 import json
 import logging
-from typing import List, Any, Tuple, Dict
+from typing import List, Any, Tuple, Dict, Optional
+from core.discovery_defaults import VALID_FILTER_OPERATORS, FORBIDDEN_API_FILTER_FIELDS
 
 logger = logging.getLogger(__name__)
 
-FORBIDDEN_API_FILTER_FIELDS = [
-    "relevance",
-    "sv_bing",
-    "sv_clickstream",
-]  # Define forbidden fields
+# Use centralized configuration from discovery_defaults
+# (No local redefinition needed - imported at top)
+
+
+def validate_filter_structure(filter_item: Any) -> Tuple[bool, Optional[str]]:
+    """
+    Validates that a filter item has the correct structure.
+    
+    Expected format: [field, operator, value] or logical operator string ("and"/"or")
+    
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    # Allow logical operators
+    if isinstance(filter_item, str) and filter_item.lower() in ["and", "or"]:
+        return True, None
+    
+    # Allow nested filter arrays
+    if isinstance(filter_item, list):
+        # Check if it's a nested array of filters
+        if len(filter_item) > 0 and isinstance(filter_item[0], list):
+            # Recursively validate nested filters
+            for nested_item in filter_item:
+                is_valid, error = validate_filter_structure(nested_item)
+                if not is_valid:
+                    return False, error
+            return True, None
+        
+        # Validate standard filter format: [field, operator, value]
+        if len(filter_item) != 3:
+            return False, f"Filter must have exactly 3 elements [field, operator, value], got {len(filter_item)}"
+        
+        field, operator, value = filter_item
+        
+        if not isinstance(field, str):
+            return False, f"Filter field must be a string, got {type(field).__name__}"
+        
+        if not isinstance(operator, str):
+            return False, f"Filter operator must be a string, got {type(operator).__name__}"
+        
+        if operator not in VALID_FILTER_OPERATORS:
+            return False, f"Invalid operator '{operator}'. Valid operators: {', '.join(VALID_FILTER_OPERATORS)}"
+        
+        # Validate value type based on operator
+        if operator in ["in", "not_in"]:
+            if not isinstance(value, (list, tuple)):
+                return False, f"Operator '{operator}' requires a list/array value, got {type(value).__name__}"
+        
+        return True, None
+    
+    return False, f"Invalid filter structure: {type(filter_item).__name__}"
 
 
 def sanitize_filters_for_api(filters: List[Any]) -> List[Any]:
     """
-    Removes any filters attempting to use forbidden internal metrics or data sources.
+    Validates and removes any filters attempting to use forbidden internal metrics 
+    or data sources. Also validates filter structure.
+    
+    Args:
+        filters: List of filter conditions
+        
+    Returns:
+        List of validated and sanitized filters
+        
+    Raises:
+        ValueError: If filter structure is invalid
     """
+    if not filters:
+        return []
+    
     sanitized = []
-    for item in filters:
+    removed_count = 0
+    
+    for idx, item in enumerate(filters):
+        # Validate structure first
+        is_valid, error_msg = validate_filter_structure(item)
+        if not is_valid:
+            logger.error(f"Invalid filter structure at index {idx}: {error_msg}")
+            raise ValueError(f"Filter validation failed at index {idx}: {error_msg}")
+        
+        # Check for forbidden fields
         if isinstance(item, list) and len(item) >= 1 and isinstance(item[0], str):
             field_path = item[0].lower()
-            if any(
-                forbidden in field_path for forbidden in FORBIDDEN_API_FILTER_FIELDS
-            ):
+            if any(forbidden in field_path for forbidden in FORBIDDEN_API_FILTER_FIELDS):
                 logger.warning(
-                    f"Forbidden field '{field_path}' detected in API filter. Removing it."
+                    f"Forbidden field '{field_path}' detected in API filter at index {idx}. Removing it."
                 )
+                removed_count += 1
                 continue
+        
         sanitized.append(item)
+    
+    if removed_count > 0:
+        logger.info(f"Removed {removed_count} invalid filter(s) from API request")
+    
     return sanitized
-
-
-def build_discovery_filters(config: Dict[str, Any]) -> Tuple[List[Any], List[Any]]:
-    """
-    Builds filter lists for API-side filtering for KD, SV, Competition, and Intent.
-    """
-    std_api_filters = []
-    rel_api_filters = []
-
-    min_sv = config.get("min_search_volume")
-    if min_sv is not None:
-        std_api_filters.extend([["keyword_info.search_volume", ">=", min_sv], "and"])
-        rel_api_filters.extend(
-            [["keyword_data.keyword_info.search_volume", ">=", min_sv], "and"]
-        )
-
-    max_kd = config.get("max_keyword_difficulty")
-    if max_kd is not None:
-        std_api_filters.extend(
-            [["keyword_properties.keyword_difficulty", "<=", max_kd], "and"]
-        )
-        rel_api_filters.extend(
-            [
-                ["keyword_data.keyword_properties.keyword_difficulty", "<=", max_kd],
-                "and",
-            ]
-        )
-
-    allowed_comp_levels = config.get("allowed_competition_levels")
-    if allowed_comp_levels:
-        std_api_filters.extend(
-            [["keyword_info.competition_level", "in", allowed_comp_levels], "and"]
-        )
-        rel_api_filters.extend(
-            [
-                [
-                    "keyword_data.keyword_info.competition_level",
-                    "in",
-                    allowed_comp_levels,
-                ],
-                "and",
-            ]
-        )
-
-    allowed_intents = config.get("allowed_intents")
-    if config.get("enforce_intent_filter", False) and allowed_intents:
-        std_api_filters.extend(
-            [["search_intent_info.main_intent", "in", allowed_intents], "and"]
-        )
-        rel_api_filters.extend(
-            [
-                ["keyword_data.search_intent_info.main_intent", "in", allowed_intents],
-                "and",
-            ]
-        )
-
-    # NEW: Closely Variants
-    closely_variants = config.get("closely_variants")
-    if closely_variants is not None:
-        std_api_filters.extend(
-            [["closely_variants", "=", closely_variants], "and"]
-        )  # This param is at top level
-        # Related keywords endpoint does not have closely_variants
-
-    # NEW: CPC Range Filters
-    min_cpc_filter = config.get("min_cpc_filter")
-    max_cpc_filter = config.get("max_cpc_filter")
-    if min_cpc_filter is not None:
-        std_api_filters.extend([["keyword_info.cpc", ">=", min_cpc_filter], "and"])
-        rel_api_filters.extend(
-            [["keyword_data.keyword_info.cpc", ">=", min_cpc_filter], "and"]
-        )
-    if max_cpc_filter is not None:
-        std_api_filters.extend([["keyword_info.cpc", "<=", max_cpc_filter], "and"])
-        rel_api_filters.extend(
-            [["keyword_data.keyword_info.cpc", "<=", max_cpc_filter], "and"]
-        )
-
-    # NEW: Competition Range Filters
-    min_competition = config.get("min_competition")
-    max_competition = config.get("max_competition")
-    if min_competition is not None:
-        std_api_filters.extend(
-            [["keyword_info.competition", ">=", min_competition], "and"]
-        )
-        rel_api_filters.extend(
-            [["keyword_data.keyword_info.competition", ">=", min_competition], "and"]
-        )
-    if max_competition is not None:
-        std_api_filters.extend(
-            [["keyword_info.competition", "<=", max_competition], "and"]
-        )
-        rel_api_filters.extend(
-            [["keyword_data.keyword_info.competition", "<=", max_competition], "and"]
-        )
-
-    # NEW: Max Competition Level Filter
-    max_competition_level = config.get("max_competition_level")
-    if max_competition_level:
-        levels = ["LOW", "MEDIUM", "HIGH"]
-        allowed_levels = levels[: levels.index(max_competition_level) + 1]
-        std_api_filters.extend(
-            [["keyword_info.competition_level", "in", allowed_levels], "and"]
-        )
-        rel_api_filters.extend(
-            [
-                ["keyword_data.keyword_info.competition_level", "in", allowed_levels],
-                "and",
-            ]
-        )
-
-    # NEW: Regex Filter (from Task 34)
-    search_phrase_regex = config.get("search_phrase_regex")
-    if search_phrase_regex and search_phrase_regex.strip():
-        std_api_filters.extend([["keyword", "regex", search_phrase_regex], "and"])
-        rel_api_filters.extend(
-            [["keyword_data.keyword", "regex", search_phrase_regex], "and"]
-        )
-
-    if std_api_filters:
-        std_api_filters.pop()
-    if rel_api_filters:
-        rel_api_filters.pop()
-
-    # Apply sanitation (Weakness 3.7 Fix)
-    std_api_filters = sanitize_filters_for_api(std_api_filters)
-    rel_api_filters = sanitize_filters_for_api(rel_api_filters)
-
-    logger.info(f"Built standard API filters: {json.dumps(std_api_filters)}")
-    logger.info(f"Built related API filters: {json.dumps(rel_api_filters)}")
-
-    return std_api_filters, rel_api_filters

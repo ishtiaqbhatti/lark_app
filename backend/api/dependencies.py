@@ -64,11 +64,16 @@ def get_orchestrator(
         # Fallback to default for orchestrator initialization if header is missing
         client_id = "Lark_Main_Site"
 
+    # CRITICAL FIX: Ensure global_cfg_manager is properly initialized and passed
+    if not api_globals.config_manager:
+        raise HTTPException(status_code=500, detail="Configuration manager not initialized.")
+
     if not db.get_client_settings(client_id):
         raise HTTPException(
             status_code=404, detail=f"Client with ID '{client_id}' not found."
         )
 
+    # Pass the global_cfg_manager instance to the WorkflowOrchestrator constructor
     return WorkflowOrchestrator(api_globals.config_manager, db, client_id, jm)
 
 

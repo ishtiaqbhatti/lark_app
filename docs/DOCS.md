@@ -3174,7 +3174,7 @@ For example, `"keyword_info.search_volume": "num"` where `num` is the supported 
 
 Each data type, in turn, supports different filter operators.
 
-For example, for the `["domain_rank": "num"]` we can use these operators `<`, `<=`, `>`, `>=`, `=`, `<>`, `in`, `not_in`.
+> For example, for the ["main_domain": "str"] filter, we can use one of the following operators: `match`, `not_match`, `like`, `not_like`, `ilike`, `not_ilike`, `=`, `<>`.
 
 ### How to use operators?
 

@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import hashlib
 from backend.data_access.database_manager import DatabaseManager
 from backend.data_mappers.dataforseo_mapper import DataForSEOMapper
+from backend.pipeline.step_01_discovery.keyword_discovery.filters import sanitize_filters_for_api, FORBIDDEN_API_FILTER_FIELDS # NEW: Import for filter sanitization
 
 
 class DataForSEOClientV2:
@@ -31,9 +32,9 @@ class DataForSEOClientV2:
     ONPAGE_INSTANT_PAGES = "on_page/instant_pages"
     ONPAGE_CONTENT_PARSING = "on_page/content_parsing/live"  # Add this line
 
-    KEYWORD_IDEAS_MODE_LIMIT = 10
-    KEYWORD_SUGGESTIONS_MODE_LIMIT = 100
-    RELATED_KEYWORDS_MODE_LIMIT = 100
+    KEYWORD_IDEAS_MODE_LIMIT = 1000 # Increased default limit as per API docs max
+    KEYWORD_SUGGESTIONS_MODE_LIMIT = 1000 # Increased default limit
+    RELATED_KEYWORDS_MODE_LIMIT = 1000 # Increased default limit
 
     def __init__(
         self,
@@ -56,227 +57,45 @@ class DataForSEOClientV2:
         self.config = config  # Store the config object
         self.enable_cache = enable_cache
 
-    def _enforce_api_filter_limit(
-        self, filters: Optional[List[Any]], max_limit: int = 8
-    ) -> Optional[List[Any]]:
-        """
-        Enforces the API filter limit (max 8 conditions) by truncating the filter list.
-        This is a backend safeguard if frontend validation is bypassed.
-        """
-        if not filters:
-            return None
-
-        # Count actual filter conditions (which are lists, not "and"/"or" strings)
-        condition_elements = [f for f in filters if isinstance(f, list)]
-        if len(condition_elements) <= max_limit:
-            return filters  # No need to truncate
-
-        self.logger.warning(
-            f"Backend safeguard: API filter list exceeds {max_limit} conditions ({len(condition_elements)} found). Truncating to the first {max_limit} conditions."
-        )
-
-        truncated_filters = []
-        condition_count = 0
-        for item in filters:
-            if isinstance(item, list):  # This is a condition
-                if condition_count < max_limit:
-                    truncated_filters.append(item)
-                    condition_count += 1
-                else:
-                    break  # Stop adding conditions
-            elif truncated_filters and isinstance(truncated_filters[-1], list):
-                # Add logical operator only if it follows a condition and we're still building
-                truncated_filters.append(item)
-
-        # Ensure the list doesn't end with a dangling logical operator
-        if (
-            truncated_filters
-            and isinstance(truncated_filters[-1], str)
-            and truncated_filters[-1].lower() in ["and", "or"]
-        ):
-            truncated_filters.pop()
-
-        return truncated_filters
-
-    def _post_request(
-        self, endpoint: str, data: List[Dict[str, Any]], tag: Optional[str] = None
-    ) -> Tuple[Optional[Dict[str, Any]], float]:
-        """
-        Handles the actual POST request to the API, with retries and exponential backoff for rate limits.
-        """
-        cache_key_string = json.dumps(
-            {
-                "endpoint": endpoint,
-                "data": data,
-                "filters": data[0].get("filters") if data else None,
-            },
-            sort_keys=True,
-        )
-        cache_key = hashlib.md5(cache_key_string.encode("utf-8")).hexdigest()
-
-        if self.enable_cache:
-            cached_response = self.db_manager.get_api_cache(cache_key)
-            if cached_response:
-                self.logger.info(f"Cache HIT for endpoint {endpoint} with tag '{tag}'.")
-                return cached_response, 0.0
-
-        self.logger.info(
-            f"Cache MISS for endpoint {endpoint} with tag '{tag}'. Making live API call."
-        )
-
-        if tag:
-            for task_item in data:
-                if isinstance(task_item, dict):
-                    task_item["tag"] = tag
-
-        full_url = f"{self.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
-        self.logger.info(
-            f"Making POST request to {full_url} with data: {json.dumps(data)}"
-        )
-        retries = 3
-        backoff_factor = 5
-
-        for attempt in range(retries):
-            try:
-                response = requests.post(
-                    full_url, headers=self.headers, data=json.dumps(data), timeout=120
-                )
-
-                # W20 FIX: Early exit for critical top-level HTTP errors
-                if response.status_code >= 500:
-                    self.logger.error(
-                        f"DataForSEO API returned a server error ({response.status_code}). Aborting after {attempt + 1} attempts."
-                    )
-                    return None, 0.0  # Do not retry on server errors
-
-                response.raise_for_status()  # Raise HTTPError for 4xx client errors
-
-                response_json = response.json()
-
-                # W20 FIX: Check top-level status_code from DataForSEO
-                if response_json.get("status_code") != 20000:
-                    self.logger.error(
-                        f"DataForSEO API returned non-20000 status_code: {response_json.get('status_code')} - {response_json.get('status_message')}"
-                    )
-                    # No retry for auth errors, etc.
-                    if response_json.get("status_code") in [40101, 40102, 40103]:
-                        return None, 0.0
-
-                # W20 FIX: Log critical task-level errors
-                if response_json.get("tasks_error", 0) > 0:
-                    for task in response_json.get("tasks", []):
-                        if task.get("status_code") != 20000:
-                            # Log specific, known critical errors
-                            if task.get("status_code") == 40501:  # Duplicate crawl host
-                                self.logger.critical(
-                                    f"CRITICAL API ERROR (40501): Duplicate crawl host detected for URL {task.get('data', {}).get('url')}. This batch is invalid."
-                                )
-                            else:
-                                self.logger.warning(
-                                    f"Task-level error for {task.get('data', {}).get('url', 'N/A')}: {task.get('status_code')} - {task.get('status_message')}"
-                                )
-
-                cost = response_json.get("cost", 0.0)
-
-                if self.enable_cache:
-                    self.db_manager.set_api_cache(cache_key, response_json)
-
-                return response_json, cost
-
-            except requests.exceptions.HTTPError as e:
-                # This will now primarily catch 4xx errors
-                if (
-                    response.status_code == 429 and attempt < retries - 1
-                ):  # Specifically handle rate limits
-                    wait_time = backoff_factor * (2**attempt)
-                    self.logger.warning(
-                        f"Rate limit exceeded (429). Retrying in {wait_time} seconds... (Attempt {attempt + 1}/{retries})"
-                    )
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    self.logger.error(
-                        f"HTTP error during DataForSEO API request to {full_url}: {e}",
-                        exc_info=True,
-                    )
-                    return None, 0.0
-            except requests.exceptions.RequestException as e:
-                self.logger.error(
-                    f"Network error during DataForSEO API request to {full_url}: {e}",
-                    exc_info=True,
-                )
-                if attempt < retries - 1:
-                    time.sleep(backoff_factor * (2**attempt))
-                    continue
-                return None, 0.0
-
-        return None, 0.0
-
     def _prioritize_and_limit_filters(self, filters: Optional[List[Any]]) -> List[Any]:
         """Enforces the 8-filter maximum rule by prioritizing essential filters."""
         if not filters:
             return []
 
-        # Count actual filter conditions (excluding logical operators like "and", "or")
         condition_count = sum(1 for f in filters if isinstance(f, list))
-
-        # If already within the limit, return as is.
         if condition_count <= 8:
-            return filters
+            # If 8 or fewer, just add "and" between them
+            final_filters_structure = []
+            for i, filt in enumerate(filters):
+                final_filters_structure.append(filt)
+                if i < len(filters) - 1:
+                    final_filters_structure.append("and")
+            return final_filters_structure
 
         self.logger.warning(
             f"Filter list exceeds 8 conditions ({condition_count} found). Prioritizing essential filters."
         )
 
-        # Simple prioritization logic: Keep filters based on field name presence
-        # Prioritized fields (essential for targeting): keyword_difficulty, search_volume, main_intent, competition_level, cpc, competition
         PRIORITIZED_FIELDS = [
-            "keyword_difficulty",
-            "search_volume",
-            "main_intent",
-            "competition_level",
-            "cpc",
-            "competition",
+            "keyword_difficulty", "search_volume", "main_intent", 
+            "competition_level", "cpc", "competition", "is_another_language", "serp_item_types"
         ]
 
         prioritized_filters = []
         other_filters = []
 
-        # Iterate through the filters to separate prioritized from others
         for element in filters:
-            if isinstance(element, list) and len(element) >= 3:
-                # Assuming element[0] is the field name, like "keyword_info.search_volume"
-                field_name = element[0].lower()
-                is_priority = any(
-                    p_field in field_name for p_field in PRIORITIZED_FIELDS
-                )
-
+            if isinstance(element, list) and len(element) >= 1:
+                field_name = str(element[0]).lower()
+                is_priority = any(p_field in field_name for p_field in PRIORITIZED_FIELDS)
                 if is_priority:
                     prioritized_filters.append(element)
                 else:
                     other_filters.append(element)
-            else:
-                # Logical operators ('and', 'or') will be re-added later if needed
-                pass
 
-        # Combine prioritized filters (up to 8 slots)
-        limited_filters_list = []  # Only actual conditions
+        limited_filters_list = prioritized_filters + other_filters
+        limited_filters_list = limited_filters_list[:8]
 
-        # 1. Add prioritized filters first
-        for f in prioritized_filters:
-            if len(limited_filters_list) < 8:
-                limited_filters_list.append(f)
-            else:
-                break
-
-        # 2. Fill remaining slots with non-prioritized filters if space permits
-        for f in other_filters:
-            if len(limited_filters_list) < 8:
-                limited_filters_list.append(f)
-            else:
-                break
-
-        # Reconstruct the filter list with "and" operators
         final_filters_structure = []
         for i, filt in enumerate(limited_filters_list):
             final_filters_structure.append(filt)
@@ -284,6 +103,203 @@ class DataForSEOClientV2:
                 final_filters_structure.append("and")
 
         return final_filters_structure
+
+
+
+
+    def _convert_filters_to_api_format(
+        self, filters: Optional[List[List[Any]]]
+    ) -> Optional[List[Any]]:
+        """
+        Converts a list of filter lists/strings into the DataForSEO Labs API's 
+        list-of-lists format, sanitizes it, and enforces the 8-filter limit.
+        This version specifically handles expanding 'has'/'has_not' filters that use an array value.
+        """
+        if not filters:
+            return None
+
+        # Filter out empty value filters, now accessing by index
+        valid_filters = []
+        for f in filters:
+            if isinstance(f, list) and len(f) == 3:
+                if f[2] is not None and f[2] != []:
+                    valid_filters.append(f)
+            elif isinstance(f, str): # Keep logical operators
+                valid_filters.append(f)
+
+        if not valid_filters:
+            return None
+
+        api_filters_conditions = []
+        for f in valid_filters:
+            if not isinstance(f, list):
+                api_filters_conditions.append(f)
+                continue
+
+            field, op, value = f[0], f[1], f[2]
+            
+            if op in ["has", "has_not"] and isinstance(value, list):
+                self.logger.info(f"Expanding '{op}' filter for field '{field}' into multiple conditions.")
+                for item in value:
+                    api_filters_conditions.append([field, op, item])
+            else:
+                api_filters_conditions.append([field, op, value])
+
+        # 1. Sanitize to remove forbidden fields first
+        sanitized_filters = sanitize_filters_for_api(api_filters_conditions)
+        
+        # 2. Prioritize and limit to 8 filters
+        limited_filters = self._prioritize_and_limit_filters(sanitized_filters)
+        
+        if not limited_filters:
+            return None
+        
+        return limited_filters
+
+    def get_keyword_ideas(
+        self,
+        seed_keywords: List[str],
+        location_code: int,
+        language_code: str,
+        client_cfg: Dict[str, Any],
+        discovery_modes: List[str],
+        filters: Dict[str, Any],
+        order_by: Optional[Dict[str, List[str]]],
+        limit: Optional[int] = None,
+        depth: Optional[int] = None,
+        ignore_synonyms_override: Optional[bool] = None,
+        include_clickstream_override: Optional[bool] = None,
+        closely_variants_override: Optional[bool] = None,
+        exact_match_override: Optional[bool] = None,
+    ) -> Tuple[List[Dict[str, Any]], float]:
+        """
+        Performs a comprehensive discovery burst using Keyword Ideas, Suggestions, and Related Keywords endpoints.
+        """
+        all_items = []
+        total_cost = 0.0
+        max_pages = client_cfg.get("discovery_max_pages", 1)
+
+        def to_bool(value: Any) -> bool:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                return value.lower() in ['true', '1', 't', 'y', 'yes']
+            return bool(value)
+
+        final_ignore_synonyms = to_bool(ignore_synonyms_override if ignore_synonyms_override is not None else self.config.get("discovery_ignore_synonyms", False))
+        final_include_clickstream = to_bool(include_clickstream_override if include_clickstream_override is not None else self.config.get("include_clickstream_data", False))
+        final_closely_variants = to_bool(closely_variants_override if closely_variants_override is not None else self.config.get("closely_variants", False))
+        final_exact_match = to_bool(exact_match_override if exact_match_override is not None else self.config.get("discovery_exact_match", False))
+
+        if "Keyword Ideas" in discovery_modes:
+            self.logger.info(f"Fetching keyword ideas for {len(seed_keywords)} seeds...")
+            ideas_endpoint = self.LABS_KEYWORD_IDEAS
+            api_filters = self._convert_filters_to_api_format(filters.get("Keyword Ideas"))
+            
+            ideas_task = {
+                "keywords": seed_keywords,
+                "location_code": location_code,
+                "language_code": language_code,
+                "limit": limit if limit is not None else self.KEYWORD_IDEAS_MODE_LIMIT,
+                "include_serp_info": True,
+                "ignore_synonyms": final_ignore_synonyms,
+                "closely_variants": final_closely_variants,
+                "order_by": order_by.get("Keyword Ideas") if order_by else None,
+                "include_clickstream_data": final_include_clickstream,
+            }
+            if api_filters:
+                ideas_task["filters"] = api_filters
+                
+            ideas_response, cost = self._post_request(ideas_endpoint, [ideas_task], tag="discovery_ideas")
+            ideas_items = (ideas_response["tasks"][0]["result"][0].get("items") or []) if ideas_response and ideas_response.get("tasks") and ideas_response["tasks"] and ideas_response["tasks"][0].get("result") and ideas_response["tasks"][0]["result"] else []
+            total_cost += cost
+
+            for item in ideas_items:
+                item["discovery_source"] = "keyword_ideas"
+                item["depth"] = 0
+                all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
+            self.logger.info(f"Found {len(ideas_items)} ideas from Keyword Ideas API.")
+
+        if "Keyword Suggestions" in discovery_modes:
+            self.logger.info("Fetching keyword suggestions...")
+            suggestions_endpoint = self.LABS_KEYWORD_SUGGESTIONS
+            for seed_keyword in seed_keywords:
+                api_filters = self._convert_filters_to_api_format(filters.get("Keyword Suggestions"))
+                
+                suggestions_task = {
+                    "keyword": seed_keyword,
+                    "location_code": location_code,
+                    "language_code": language_code,
+                    "limit": limit if limit is not None else self.KEYWORD_SUGGESTIONS_MODE_LIMIT,
+                    "include_serp_info": True,
+                    "exact_match": final_exact_match,
+                    "ignore_synonyms": final_ignore_synonyms,
+                    "include_seed_keyword": True,
+                    "order_by": order_by.get("Keyword Suggestions"),
+                    "include_clickstream_data": final_include_clickstream,
+                }
+                if api_filters:
+                    suggestions_task["filters"] = api_filters
+
+                suggestions_response, cost = self._post_request(suggestions_endpoint, [suggestions_task], tag=f"discovery_suggestions:{seed_keyword[:20]}")
+                suggestions_items = (suggestions_response["tasks"][0]["result"][0].get("items") or []) if suggestions_response and suggestions_response.get("tasks") and suggestions_response["tasks"] and suggestions_response["tasks"][0].get("result") and suggestions_response["tasks"][0]["result"] else []
+                total_cost += cost
+                for item in suggestions_items:
+                    item["discovery_source"] = "keyword_suggestions"
+                    item["depth"] = 0
+                    all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
+                self.logger.info(f"Found {len(suggestions_items)} suggestions for '{seed_keyword}'.")
+                
+        if "Related Keywords" in discovery_modes:
+            self.logger.info("Fetching related keywords...")
+            related_endpoint = self.LABS_RELATED_KEYWORDS
+            seed_keywords_for_related = seed_keywords[:10]
+
+            for seed in seed_keywords_for_related:
+                related_filters_raw = filters.get("Related Keywords")
+                if related_filters_raw:
+                    for f in related_filters_raw:
+                        if "field" in f and not f["field"].startswith("keyword_data."):
+                            f["field"] = f"keyword_data.{f['field']}"
+                
+                api_filters = self._convert_filters_to_api_format(related_filters_raw)
+                
+                related_orderby = order_by.get("Related Keywords", [])
+                api_orderby = []
+                for rule in related_orderby:
+                    parts = rule.split(',')
+                    if len(parts) == 2:
+                        field, direction = parts
+                        if not field.startswith("keyword_data."):
+                            field = f"keyword_data.{field}"
+                        api_orderby.append(f"{field},{direction}")
+                
+                related_task = {
+                    "keyword": seed,
+                    "location_code": location_code,
+                    "language_code": language_code,
+                    "depth": 1,
+                    "limit": limit if limit is not None else self.RELATED_KEYWORDS_MODE_LIMIT,
+                    "include_serp_info": True,
+                    "order_by": api_orderby if api_orderby else None,
+                    "include_clickstream_data": final_include_clickstream,
+                    "replace_with_core_keyword": client_cfg.get("discovery_replace_with_core_keyword", False),
+                }
+                if api_filters:
+                    related_task["filters"] = api_filters
+
+                related_response, cost = self._post_request(related_endpoint, [related_task], tag=f"discovery_related:{seed[:20]}")
+                related_items = (related_response["tasks"][0]["result"][0].get("items") or []) if related_response and related_response.get("tasks") and related_response["tasks"] and related_response["tasks"][0].get("result") and related_response["tasks"][0]["result"] else []
+                total_cost += cost
+                for item in related_items:
+                    keyword_data = item.get("keyword_data")
+                    if keyword_data:
+                        keyword_data["discovery_source"] = "related"
+                        keyword_data["depth"] = item.get("depth")
+                        all_items.append(DataForSEOMapper.sanitize_keyword_data_item(keyword_data))
+            self.logger.info(f"Total raw items from all sources: {len(all_items)}")
+
+        return all_items, total_cost
 
     def get_technical_onpage_data(
         self, urls: List[str], client_cfg: Dict[str, Any]
@@ -474,531 +490,79 @@ class DataForSEOClientV2:
             all_results.extend(current_batch_results)
         return all_results, total_cost
 
-    def get_content_onpage_data(
-        self,
-        urls: List[str],
-        client_cfg: Dict[str, Any],
-        enable_javascript: bool = False,
-    ) -> Tuple[Optional[List[Dict[str, Any]]], float]:
-        """
-        Performs OnPage scans using the Content Parsing endpoint, with control over JS rendering.
-        This function now sends requests for multiple URLs in parallel using a thread pool
-        for improved performance, as the endpoint does not support batch processing.
-        """
-        if not urls:
-            return [], 0.0
-
-        self.logger.info(
-            f"Fetching OnPage Content Parsing data for {len(urls)} URLs with enable_javascript={enable_javascript} in parallel..."
-        )
-
-        all_tasks = []
-        total_cost = 0.0
-
-        # Helper function to be executed in each thread
-        def _fetch_single_url(url: str) -> Tuple[Optional[Dict[str, Any]], float]:
-            post_data = [
-                {
-                    "url": url,
-                    "enable_javascript": enable_javascript,
-                    "store_raw_html": True,
-                    "markdown_view": True,
-                    "disable_cookie_popup": client_cfg.get(
-                        "onpage_disable_cookie_popup", True
-                    ),
-                }
-            ]
-            tag = f"onpage_content_parsing_js_{str(enable_javascript).lower()}:{urlparse(url).netloc}"
-            return self._post_request(self.ONPAGE_CONTENT_PARSING, post_data, tag=tag)
-
-        # Use a ThreadPoolExecutor to send requests concurrently
-        # The number of workers can be tuned, but 5 is a safe default to avoid overwhelming the API
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            # map executes the function for each item in the urls list
-            future_to_url = {
-                executor.submit(_fetch_single_url, url): url for url in urls
-            }
-            for future in as_completed(future_to_url):
-                url = future_to_url[future]
-                try:
-                    response, cost = future.result()
-                    total_cost += cost
-                    if response and response.get("tasks"):
-                        all_tasks.extend(response["tasks"])
-                    else:
-                        self.logger.error(
-                            f"Failed to get a valid response for content_parsing for URL: {url}"
-                        )
-                        all_tasks.append(
-                            {
-                                "status_code": 50000,
-                                "status_message": "No response from API",
-                                "data": {"url": url},
-                            }
-                        )
-                except Exception as exc:
-                    self.logger.error(f"{url} generated an exception: {exc}")
-                    all_tasks.append(
-                        {
-                            "status_code": 50001,
-                            "status_message": f"Request generated an exception: {exc}",
-                            "data": {"url": url},
-                        }
-                    )
-
-        if all_tasks:
-            return all_tasks, total_cost
-
-        self.logger.error(
-            f"Failed to get any response for any of the {len(urls)} URLs."
-        )
-        return [
-            {
-                "status_code": 50000,
-                "status_message": "No response from API",
-                "data": {"url": url},
-            }
-            for url in urls
-        ], 0.0
-
-    def get_serp_results(
-        self,
-        keyword: str,
-        location_code: int,
-        language_code: str,
-        client_cfg: Dict[str, Any],
-        serp_call_params: Optional[Dict[str, Any]] = None,
+    def _post_request(
+        self, endpoint: str, data: List[Dict[str, Any]], tag: Optional[str] = None
     ) -> Tuple[Optional[Dict[str, Any]], float]:
         """
-        Fetches the advanced SERP data for a single keyword, with caching.
+        Handles the actual POST request to the API, with retries, exponential backoff,
+        and intelligent caching that ignores failed responses.
         """
-        device = client_cfg.get("device", "desktop")
-        self.logger.info(
-            f"Fetching live SERP results for '{keyword}' on device '{device}'..."
-        )
-        endpoint = self.SERP_ADVANCED
-        base_serp_params = {
-            "keyword": keyword,
-            "location_code": location_code,
-            "language_code": language_code,
-            "group_organic_results": False,  # NEW: Ensure no grouping for full analysis
-        }
-        if serp_call_params:
-            base_serp_params.update(serp_call_params)
+        cache_key_string = json.dumps({"endpoint": endpoint, "data": data}, sort_keys=True)
+        cache_key = hashlib.md5(cache_key_string.encode("utf-8")).hexdigest()
 
-        if client_cfg.get("calculate_rectangles", False):
-            base_serp_params["calculate_rectangles"] = True
+        if self.enable_cache:
+            cached_response = self.db_manager.get_api_cache(cache_key)
+            if cached_response:
+                self.logger.info(f"Cache HIT for endpoint {endpoint} with tag '{tag}'.")
+                return cached_response, 0.0
 
-        base_serp_params["depth"] = int(base_serp_params.get("depth", 10))
+        self.logger.info(f"Cache MISS for endpoint {endpoint} with tag '{tag}'. Making live API call.")
 
-        # Add advanced features from client_cfg if they are enabled.
-        if client_cfg.get("calculate_rectangles", False):
-            base_serp_params["calculate_rectangles"] = True
+        if tag:
+            for task_item in data:
+                if isinstance(task_item, dict):
+                    task_item["tag"] = tag
 
-        paa_depth = client_cfg.get("people_also_ask_click_depth", 0)
-        if isinstance(paa_depth, int) and 1 <= paa_depth <= 4:
-            base_serp_params["people_also_ask_click_depth"] = paa_depth
+        full_url = f"{self.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        self.logger.info(f"Making POST request to {full_url} with data: {json.dumps(data)}")
+        retries = 3
+        backoff_factor = 5
 
-        # W3 FIX: Add support for loading AI overview asynchronously
-        if client_cfg.get("load_async_ai_overview", False):
-            base_serp_params["load_async_ai_overview"] = True
+        for attempt in range(retries):
+            try:
+                response = requests.post(full_url, headers=self.headers, data=json.dumps(data), timeout=120)
 
-        # W11 FIX: Include URL removal parameters
-        remove_params_str = client_cfg.get("serp_remove_from_url_params")
-        if remove_params_str:
-            # Assuming config value is a comma-separated string of parameters
-            params_list = [p.strip() for p in remove_params_str.split(",") if p.strip()]
+                if response.status_code >= 500:
+                    self.logger.error(f"DataForSEO API returned a server error ({response.status_code}). Aborting.")
+                    return None, 0.0
 
-            # W14 FIX: Validate and clip URL removal parameters (max 10)
-            if len(params_list) > 10:
-                self.logger.warning(
-                    f"Configuration defined {len(params_list)} parameters for removal, but DataForSEO limit is 10. Truncating."
+                response.raise_for_status()
+                response_json = response.json()
+                cost = response_json.get("cost", 0.0)
+
+                is_successful_response = (
+                    response_json.get("status_code") == 20000 and
+                    response_json.get("tasks_error", 0) == 0 and
+                    response_json.get("tasks") and
+                    response_json["tasks"][0].get("status_code") == 20000
                 )
 
-            base_serp_params["remove_from_url"] = params_list[:10]
+                if is_successful_response:
+                    if self.enable_cache:
+                        self.db_manager.set_api_cache(cache_key, response_json)
+                    return response_json, cost
+                else:
+                    error_task = response_json.get("tasks", [{}])[0]
+                    status_code = error_task.get("status_code", response_json.get("status_code"))
+                    status_message = error_task.get("status_message", response_json.get("status_message"))
+                    self.logger.error(f"DataForSEO API returned an error. Code: {status_code}, Message: {status_message}. This response will NOT be cached.")
+                    if status_code == 40501:
+                        return response_json, cost
 
-        # Ensure device and OS are passed based on client config
-        device = client_cfg.get("device", "desktop")
-        os_name = client_cfg.get("os", "windows")
+            except requests.exceptions.HTTPError as e:
+                if response.status_code == 429 and attempt < retries - 1:
+                    wait_time = backoff_factor * (2**attempt)
+                    self.logger.warning(f"Rate limit exceeded (429). Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    self.logger.error(f"HTTP error during API request: {e}", exc_info=True)
+                    return None, 0.0
+            except requests.exceptions.RequestException as e:
+                self.logger.error(f"Network error during API request: {e}", exc_info=True)
+                if attempt < retries - 1:
+                    time.sleep(backoff_factor * (2**attempt))
+                    continue
+                return None, 0.0
 
-        # Adjust OS if device is mobile for compatibility
-        if device == "mobile" and os_name not in ["android", "ios"]:
-            os_name = "android"
-
-        base_serp_params["device"] = device
-        base_serp_params["os"] = os_name
-
-        request_tag = f"serp_advanced:{keyword[:50]}"
-        response, cost = self._post_request(
-            endpoint, [base_serp_params], tag=request_tag
-        )
-
-        if response and response.get("tasks") and response["tasks"][0].get("result"):
-            result_data = response["tasks"][0]["result"][0]
-            sanitized_result_data = DataForSEOMapper.sanitize_serp_overview_response(
-                result_data
-            )  # ADDED SANITIZATION
-            return sanitized_result_data, cost
-
-        return None, cost
-
-    def post_with_paging(
-        self,
-        endpoint: str,
-        initial_task: Dict[str, Any],
-        max_pages: int,
-        paginated: bool = True,
-        tag: Optional[str] = None,
-    ) -> Tuple[List[Dict[str, Any]], float]:
-        """
-        Executes a POST request and, if paginated=True, recursively retrieves all results using the correct pagination method.
-        """
-        all_items = []
-        total_cost = 0.0
-        current_task = initial_task.copy()
-
-        if "filters" in current_task and (
-            current_task["filters"] is None or len(current_task["filters"]) == 0
-        ):
-            current_task.pop("filters")
-
-        page_count = 0
-        previous_offset_token = None  # ADDED: For infinite loop prevention
-
-        while True:
-            if not paginated and page_count > 0:
-                break
-
-            if page_count >= max_pages:
-                self.logger.info(
-                    f"Reached max page limit ({max_pages}) for endpoint {endpoint}."
-                )
-                break
-
-            page_count += 1
-            self.logger.info(
-                f"Submitting task to {endpoint} (Page {page_count}/{max_pages})..."
-            )
-
-            request_tag = (
-                tag + f":p{page_count}"
-                if tag
-                else endpoint.split("/")[-1] + f":p{page_count}"
-            )
-            response, cost = self._post_request(
-                endpoint, [current_task], tag=request_tag
-            )
-            total_cost += cost
-
-            if (
-                not response
-                or response.get("status_code") != 20000
-                or response.get("tasks_error", 0) > 0
-            ):
-                self.logger.error(
-                    f"Paging for endpoint {endpoint} failed on page {page_count}. Response: {response}"
-                )
-                break
-
-            tasks = response.get("tasks", [])
-            if not tasks or "result" not in tasks[0]:
-                self.logger.info(
-                    f"No 'result' field in the first task for endpoint {endpoint} on page {page_count}. Stopping pagination."
-                )
-                break
-
-            task_result = tasks[0].get("result")
-            if not task_result:
-                self.logger.info(
-                    f"Task result is empty for endpoint {endpoint} on page {page_count}. Stopping pagination."
-                )
-                break
-
-            items_count = 0
-            offset_token = None
-            if task_result and isinstance(task_result, list) and len(task_result) > 0:
-                offset_token = task_result[0].get("offset_token")
-                for result_item in task_result:
-                    # Capture items from the main list
-                    items = result_item.get("items")
-                    if items:
-                        items_count += len(items)
-                        all_items.extend(items)
-
-                    # Capture the valuable seed_keyword_data if it exists (from Keyword Suggestions)
-                    # and if this is specifically from the Keyword Suggestions API.
-                    # This avoids adding the same seed_keyword twice if it was also in the 'items' list
-                    # or if the main search (e.g., Keyword Ideas) already returned it.
-                    if endpoint == self.LABS_KEYWORD_SUGGESTIONS:
-                        seed_data = result_item.get("seed_keyword_data")
-                        if isinstance(seed_data, dict) and seed_data.get("keyword"):
-                            seed_data["discovery_source"] = (
-                                "keyword_suggestions_seed"  # Mark its source
-                            )
-                            all_items.append(
-                                DataForSEOMapper.sanitize_keyword_data_item(seed_data)
-                            )  # ADDED SANITIZATION
-
-            if not paginated or page_count >= max_pages or items_count == 0:
-                break
-
-            if offset_token:
-                # ADDED: Infinite loop prevention check
-                if offset_token == previous_offset_token:
-                    self.logger.warning(
-                        f"API returned a duplicate offset_token. Halting pagination to prevent infinite loop for endpoint {endpoint}."
-                    )
-                    break
-                previous_offset_token = offset_token  # Update the previous token
-
-                current_task = {
-                    "offset_token": offset_token,
-                    "limit": initial_task.get("limit", 1000),
-                }
-                if "filters" in initial_task and initial_task["filters"] is not None:
-                    current_task["filters"] = initial_task["filters"]
-                if "order_by" in initial_task and initial_task["order_by"] is not None:
-                    current_task["order_by"] = initial_task["order_by"]
-
-                time.sleep(1)
-            else:
-                break
-
-        return all_items, total_cost
-
-    def _group_urls_by_domain(
-        self, urls: List[str], max_domains: int = 5, batch_size: int = 20
-    ) -> List[List[str]]:
-        """
-        Groups URLs into batches that comply with the identical-domain limit and batch size.
-        """
-        from collections import defaultdict, deque
-
-        domain_cache = {}
-
-        def get_domain(url):
-            if url not in domain_cache:
-                try:
-                    domain_cache[url] = urlparse(url).netloc
-                except Exception:
-                    self.logger.warning(f"Could not parse domain for URL: {url}")
-                    domain_cache[url] = url
-            return domain_cache[url]
-
-        # Use deques for efficient popping from the left
-        domain_groups = defaultdict(deque)
-        for url in urls:
-            domain_groups[get_domain(url)].append(url)
-
-        batches = []
-
-        # Continue as long as there are URLs to process
-        while sum(len(q) for q in domain_groups.values()) > 0:
-            current_batch = []
-            domain_counts = defaultdict(int)
-
-            # A set of domains that have reached their limit for the current batch
-            exhausted_domains = set()
-
-            # Loop until the batch is full or no more URLs can be added
-            while len(current_batch) < batch_size:
-                url_added_in_this_pass = False
-
-                # Iterate through domains that have URLs and are not exhausted for this batch
-                for domain, url_queue in domain_groups.items():
-                    if len(current_batch) >= batch_size:
-                        break
-
-                    if url_queue and domain not in exhausted_domains:
-                        if domain_counts[domain] < max_domains:
-                            current_batch.append(url_queue.popleft())
-                            domain_counts[domain] += 1
-                            url_added_in_this_pass = True
-                        else:
-                            exhausted_domains.add(domain)
-
-                # If we went through all domains and couldn't add a single URL, stop filling this batch
-                if not url_added_in_this_pass:
-                    break
-
-            if current_batch:
-                batches.append(current_batch)
-            # If we created an empty batch and there are still urls, something is wrong.
-            # This should not happen with this logic, but as a safeguard:
-            elif sum(len(q) for q in domain_groups.values()) > 0:
-                self.logger.error(
-                    "Could not form a valid batch. Breaking to prevent infinite loop."
-                )
-                break
-
-        self.logger.info(f"Grouped {len(urls)} URLs into {len(batches)} batches.")
-        return batches
-
-    def _convert_filters_to_api_format(
-        self, filters: Optional[List[Dict[str, Any]]]
-    ) -> Optional[List[Any]]:
-        if not filters:
-            return None
-
-        api_filters = []
-        for i, f in enumerate(filters):
-            api_filters.append([f["field"], f["operator"], f["value"]])
-            if i < len(filters) - 1:
-                api_filters.append("and")
-        return api_filters
-
-    def get_keyword_ideas(
-        self,
-        seed_keywords: List[str],
-        location_code: int,
-        language_code: str,
-        client_cfg: Dict[str, Any],
-        discovery_modes: List[str],
-        filters: Dict[str, Any],
-        order_by: Optional[Dict[str, List[str]]],
-        limit: Optional[int] = None,
-        depth: Optional[int] = None,
-        ignore_synonyms_override: Optional[bool] = None,
-        include_clickstream_override: Optional[bool] = None,
-        closely_variants_override: Optional[bool] = None,
-        exact_match_override: Optional[bool] = None,
-    ) -> Tuple[List[Dict[str, Any]], float]:
-        """
-        Performs a comprehensive discovery burst using Keyword Ideas, Suggestions, and Related Keywords endpoints.
-        """
-        all_items = []
-        total_cost = 0.0
-        max_pages = client_cfg.get("discovery_max_pages", 1)
-
-        # Dynamic parameters (fall back to client_cfg if override is None)
-        ignore_synonyms = (
-            ignore_synonyms_override
-            if ignore_synonyms_override is not None
-            else client_cfg.get("discovery_ignore_synonyms", False)
-        )
-        include_clickstream = (
-            include_clickstream_override
-            if include_clickstream_override is not None
-            else client_cfg.get("include_clickstream_data", False)
-        )
-        closely_variants = (
-            closely_variants_override
-            if closely_variants_override is not None
-            else client_cfg.get("closely_variants", False)
-        )
-        exact_match = (
-            exact_match_override
-            if exact_match_override is not None
-            else client_cfg.get("exact_match", False)
-        )
-
-        if "keyword_ideas" in discovery_modes:
-            self.logger.info(
-                f"Fetching keyword ideas for {len(seed_keywords)} seeds..."
-            )
-            ideas_endpoint = self.LABS_KEYWORD_IDEAS
-
-            sanitized_ideas_filters = self._prioritize_and_limit_filters(
-                self._convert_filters_to_api_format(filters.get("ideas"))
-            )
-
-            ideas_task = {
-                "keywords": seed_keywords,
-                "location_code": location_code,
-                "language_code": language_code,
-                "limit": self.KEYWORD_IDEAS_MODE_LIMIT,
-                "include_serp_info": True,
-                "ignore_synonyms": ignore_synonyms,
-                "closely_variants": closely_variants,
-                "filters": sanitized_ideas_filters,
-                "order_by": order_by.get("ideas") if order_by else None,
-                "include_clickstream_data": include_clickstream,
-            }
-            ideas_items, cost = self.post_with_paging(
-                ideas_endpoint, ideas_task, max_pages=1, tag="discovery_ideas"
-            )
-            total_cost += cost
-
-            for item in ideas_items:
-                item["discovery_source"] = "keyword_ideas"
-                item["depth"] = 0
-                all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
-            self.logger.info(f"Found {len(ideas_items)} ideas from Keyword Ideas API.")
-
-        if "keyword_suggestions" in discovery_modes:
-            self.logger.info("Fetching keyword suggestions...")
-            suggestions_endpoint = self.LABS_KEYWORD_SUGGESTIONS
-            for seed_keyword in seed_keywords:
-                suggestions_task = {
-                    "keyword": seed_keyword,
-                    "location_code": location_code,
-                    "language_code": language_code,
-                    "limit": self.KEYWORD_SUGGESTIONS_MODE_LIMIT,
-                    "include_serp_info": True,
-                    "exact_match": exact_match,
-                    "ignore_synonyms": ignore_synonyms,
-                    "include_seed_keyword": True,
-                    "filters": self._prioritize_and_limit_filters(
-                        self._convert_filters_to_api_format(filters.get("suggestions"))
-                    ),
-                    "order_by": order_by.get("suggestions") if order_by else None,
-                    "include_clickstream_data": include_clickstream,
-                }
-                suggestions_items, cost = self.post_with_paging(
-                    suggestions_endpoint,
-                    suggestions_task,
-                    max_pages=1,
-                    tag=f"discovery_suggestions:{seed_keyword[:20]}",
-                )
-                total_cost += cost
-                for item in suggestions_items:
-                    item["discovery_source"] = "keyword_suggestions"
-                    item["depth"] = 0
-                    all_items.append(DataForSEOMapper.sanitize_keyword_data_item(item))
-                self.logger.info(
-                    f"Found {len(suggestions_items)} suggestions for '{seed_keyword}'."
-                )
-
-        if "related_keywords" in discovery_modes:
-            self.logger.info("Fetching related keywords...")
-            related_endpoint = self.LABS_RELATED_KEYWORDS
-            
-            # Limit to max 10 seed keywords for related keyword generation
-            seed_keywords_for_related = seed_keywords[:10]
-
-            for seed in seed_keywords_for_related:
-                related_task = {
-                    "keyword": seed,
-                    "location_code": location_code,
-                    "language_code": language_code,
-                    "depth": 1, # Max to one page for discovery
-                    "limit": self.RELATED_KEYWORDS_MODE_LIMIT,
-                    "include_serp_info": True,
-                    "filters": self._prioritize_and_limit_filters(
-                        self._convert_filters_to_api_format(filters.get("related"))
-                    ),
-                    "order_by": order_by.get("related") if order_by else None,
-                    "include_clickstream_data": include_clickstream,
-                    "replace_with_core_keyword": client_cfg.get(
-                        "discovery_replace_with_core_keyword", False
-                    ),
-                }
-
-                related_items, cost = self.post_with_paging(
-                    related_endpoint,
-                    related_task,
-                    max_pages=1,
-                    tag=f"discovery_related:{seed[:20]}",
-                )
-                total_cost += cost
-                for item in related_items:
-                    keyword_data = item.get("keyword_data")
-                    if keyword_data:
-                        keyword_data["discovery_source"] = "related"
-                        keyword_data["depth"] = item.get("depth")
-                        all_items.append(
-                            DataForSEOMapper.sanitize_keyword_data_item(keyword_data)
-                        )
-            self.logger.info(f"Total raw items from all sources: {len(all_items)}")
-
-        return all_items, total_cost
+        return None, 0.0

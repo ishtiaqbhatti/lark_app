@@ -175,32 +175,42 @@ class ScoringEngine:
             "freshness": self.config.get("serp_freshness_weight", 0),
             "competitor_performance": self.config.get(
                 "competitor_performance_weight", 5
-            ),  # ADDED THIS LINE
+            ),
             "volume_volatility": self.config.get("volume_volatility_weight", 0),
         }
 
-        total_weight = sum(weights.values())
+        def to_int_safely(value, default=0):
+            if value is None:
+                return default
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                self.logger.warning(f"Could not convert weight value '{value}' to int. Using default {default}.")
+                return default
+
+        sanitized_weights = {k: to_int_safely(v) for k, v in weights.items()}
+
+        total_weight = sum(sanitized_weights.values())
         if total_weight == 0:
-            return 0.0, breakdown  # Avoid division by zero
+            return 0.0, breakdown
 
         final_score = (
-            (ease_score * weights["ease"])
-            + (traffic_score * weights["traffic"])
-            + (intent_score * weights["intent"])
-            + (weakness_score * weights["weakness"])
-            + (structure_score * weights["structure"])
-            + (trend_score * weights["trend"])
-            + (features_score * weights["features"])
-            + (crowding_score * weights["crowding"])
-            + (volatility_score * weights["volatility"])
-            + (threat_score * weights["threat"])
-            + (freshness_score * weights["freshness"])
-            + (volume_volatility_score * weights["volume_volatility"])
-            + (performance_score * weights["competitor_performance"])  # ADDED THIS LINE
+            (ease_score * sanitized_weights["ease"])
+            + (traffic_score * sanitized_weights["traffic"])
+            + (intent_score * sanitized_weights["intent"])
+            + (weakness_score * sanitized_weights["weakness"])
+            + (structure_score * sanitized_weights["structure"])
+            + (trend_score * sanitized_weights["trend"])
+            + (features_score * sanitized_weights["features"])
+            + (crowding_score * sanitized_weights["crowding"])
+            + (volatility_score * sanitized_weights["volatility"])
+            + (threat_score * sanitized_weights["threat"])
+            + (freshness_score * sanitized_weights["freshness"])
+            + (volume_volatility_score * sanitized_weights["volume_volatility"])
+            + (performance_score * sanitized_weights["competitor_performance"])
         ) / total_weight
 
         for key, breakdown_data in breakdown.items():
-            # Map breakdown key to weight key
             weight_key_map = {
                 "ease_of_ranking": "ease",
                 "traffic_potential": "traffic",
@@ -214,9 +224,9 @@ class ScoringEngine:
                 "serp_threat": "threat",
                 "volume_volatility": "volume_volatility",
                 "serp_freshness": "freshness",
-                "competitor_performance": "competitor_performance",  # ADDED THIS LINE
+                "competitor_performance": "competitor_performance",
             }
             weight_key = weight_key_map.get(key, "")
-            breakdown_data["weight"] = weights.get(weight_key, 0)
+            breakdown_data["weight"] = sanitized_weights.get(weight_key, 0)
 
         return round(final_score, 2), breakdown

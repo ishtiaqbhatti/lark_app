@@ -56,23 +56,30 @@ const DiscoverySettingsTab = ({ settings, form }) => {
 
       <Divider />
 
-      <Title level={5}>Advanced Filtering & Ordering</Title>
+      <Title level={5}>Advanced Filtering & Ordering (Global Overrides)</Title>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item name="closely_variants" label="Search Mode (Keyword Ideas)" valuePropName="checked">
+          <Form.Item name="closely_variants" label="Search Mode (Keyword Ideas)" valuePropName="checked" tooltip="If enabled, 'Keyword Ideas' uses phrase-match. If disabled, it uses broad-match. Goal presets may override.">
             <Switch checkedChildren="Phrase Match" unCheckedChildren="Broad Match" />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item name="discovery_ignore_synonyms" label="Ignore Synonyms" valuePropName="checked">
+          <Form.Item name="discovery_ignore_synonyms" label="Ignore Synonyms" valuePropName="checked" tooltip="If enabled, highly similar keywords will be excluded. Goal presets may override.">
             <Switch />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item name="discovery_replace_with_core_keyword" label="Replace with Core Keyword" valuePropName="checked">
+          <Form.Item name="discovery_exact_match" label="Exact Match (Keyword Suggestions)" valuePropName="checked" tooltip="If enabled, 'Keyword Suggestions' will only return keywords with the exact seed phrase. Goal presets may override.">
             <Switch />
           </Form.Item>
         </Col>
+        <Col span={12}>
+          <Form.Item name="include_clickstream_data" label="Include Clickstream Data (Doubles Cost)" valuePropName="checked" tooltip="If enabled, clickstream-based metrics will be included, doubling API cost for discovery requests.">
+            <Switch checkedChildren="Enabled" unCheckedChildren="Disabled" />
+          </Form.Item>
+        </Col>
+        {/* REMOVED: The following filter fields are now part of Goal Presets and should not be directly editable as global defaults here */}
+        {/*
         <Col span={12}>
           <Form.Item name="min_cpc_filter" label="Minimum CPC ($)">
             <InputNumber min={0.0} step={0.1} style={{ width: '100%' }} />
@@ -121,8 +128,8 @@ const DiscoverySettingsTab = ({ settings, form }) => {
           </Form.Item>
         </Col>
         <Col span={24}>
-          <Form.Item 
-            name="search_phrase_regex" 
+          <Form.Item
+            name="search_phrase_regex"
             label={
               <Space>
                 Keyword Regex Filter
@@ -135,6 +142,7 @@ const DiscoverySettingsTab = ({ settings, form }) => {
             <Input placeholder="e.g., ^best.*reviews$" />
           </Form.Item>
         </Col>
+        */}
       </Row>
 
       <Divider />

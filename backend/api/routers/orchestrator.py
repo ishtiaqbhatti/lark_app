@@ -22,6 +22,9 @@ class GenerationRequest(BaseModel):
     model_override: Optional[str] = None
     temperature: Optional[float] = None
 
+    class Config:
+        protected_namespaces = ()
+
 
 @router.post(
     "/orchestrator/{opportunity_id}/run-generation-async", response_model=JobResponse

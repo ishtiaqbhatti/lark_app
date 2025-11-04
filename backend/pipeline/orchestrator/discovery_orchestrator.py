@@ -2,9 +2,10 @@
 import logging
 import traceback
 import os
+import json
 from typing import Dict, Any, List, Optional
 
-from backend.services.serp_analysis_service import SerpAnalysisService
+
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +17,13 @@ class DiscoveryOrchestrator:
         run_id: int,
         seed_keywords: List[str],
         discovery_modes: List[str],
-        filters: Optional[List[Any]],
+        filters: Optional[List[Dict[str, Any]]], # It receives the merged list
         order_by: Optional[List[str]],
         filters_override: Optional[Dict[str, Any]],
         limit: Optional[int] = None,
         depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = None,
+        # NEW params for direct passthrough
         include_clickstream_data: Optional[bool] = None,
         closely_variants: Optional[bool] = None,
         exact_match: Optional[bool] = None,
@@ -51,7 +53,7 @@ class DiscoveryOrchestrator:
             run_config.update(filters_override)
 
         run_logger.info(
-            f"Starting discovery with modes: {discovery_modes}, filters: {filters}, order_by: {order_by}, limit: {limit}, depth: {depth}"
+            f"Starting discovery with modes: {discovery_modes}, filters: {json.dumps(filters)}, order_by: {json.dumps(order_by)}, limit: {limit}, depth: {depth}"
         )
 
         try:
@@ -71,6 +73,15 @@ class DiscoveryOrchestrator:
             )
             from pipeline.step_01_discovery.run_discovery import run_discovery_phase
 
+            # Transform filters from List[Dict] to List[List]
+            transformed_filters = []
+            if filters:
+                for f in filters:
+                    if isinstance(f, dict):
+                        transformed_filters.append([f['field'], f['operator'], f['value']])
+                    elif isinstance(f, str):
+                        transformed_filters.append(f)
+
             discovery_result = run_discovery_phase(
                 seed_keywords=seed_keywords,
                 dataforseo_client=self.dataforseo_client,
@@ -78,13 +89,15 @@ class DiscoveryOrchestrator:
                 client_id=self.client_id,
                 client_cfg=run_config,
                 discovery_modes=discovery_modes,
-                filters=filters,
+                filters=transformed_filters, # Pass the transformed filters here
                 order_by=order_by,
                 limit=limit,
                 depth=depth,
                 ignore_synonyms=ignore_synonyms,
+                # NEW params
                 include_clickstream_data=include_clickstream_data,
                 closely_variants=closely_variants,
+                exact_match=exact_match,
                 run_logger=run_logger,
             )
 
@@ -102,7 +115,7 @@ class DiscoveryOrchestrator:
                     f"Attempting to save {len(processed_opportunities)} processed opportunities..."
                 )
                 num_added = self.db_manager.add_opportunities(
-                    processed_opportunities, self.client_id, run_id
+                    processed_opportunities, self.client_id, run_id, discovery_goal=run_config.get("discovery_goal")
                 )
                 run_logger.info(
                     f"Successfully saved {num_added} new keyword records. The database ignored {len(processed_opportunities) - num_added} duplicates."
@@ -150,12 +163,13 @@ class DiscoveryOrchestrator:
         run_id: int,
         seed_keywords: List[str],
         discovery_modes: List[str],
-        filters: Optional[List[Any]] = None,
+        filters: Optional[List[Dict[str, Any]]] = None, # It expects the merged list
         order_by: Optional[List[str]] = None,
         filters_override: Optional[Dict[str, Any]] = None,
         limit: Optional[int] = None,
         depth: Optional[int] = None,
         ignore_synonyms: Optional[bool] = None,
+        # NEW params for direct passthrough
         include_clickstream_data: Optional[bool] = None,
         closely_variants: Optional[bool] = None,
         exact_match: Optional[bool] = None,
@@ -180,6 +194,7 @@ class DiscoveryOrchestrator:
                 limit,
                 depth,
                 ignore_synonyms,
+                # NEW params
                 include_clickstream_data,
                 closely_variants,
                 exact_match,

@@ -112,7 +112,11 @@ class DatabaseManager:
                 conn.executescript(full_schema_script)
 
             self._apply_migrations_from_files()
-            self._ensure_default_client_exists(conn)  # Add this line
+            self._ensure_default_client_exists(conn)
+            
+            # --- ADD THIS LINE ---
+            self.clear_api_cache()
+            
             self.logger.info("Database initialized.")
         finally:
             self._close_conn()
@@ -244,7 +248,8 @@ class DatabaseManager:
             "score_breakdown", "full_data", "search_volume_trend_json",
             "competitor_social_media_tags_json", "competitor_page_timing_json",
             "keyword_info", "keyword_properties", "search_intent_info", "serp_overview",
-            "metrics_history", "related_keywords", "keyword_categories"
+            "metrics_history", "related_keywords", "keyword_categories",
+            "discovery_goal" # NEW: Add this new key
         ]
 
         for row in rows:
@@ -326,7 +331,7 @@ class DatabaseManager:
             return cursor.lastrowid
 
     def add_opportunities(
-        self, opportunities: List[Dict[str, Any]], client_id: str, run_id: int
+        self, opportunities: List[Dict[str, Any]], client_id: str, run_id: int, discovery_goal: Optional[str] = None
     ) -> int:
         """Adds multiple opportunities to the database in a single transaction, updating existing ones."""
         conn = self._get_conn()
@@ -460,61 +465,76 @@ class DatabaseManager:
                     full_data_copy.pop("keyword_properties", None)
                     full_data_copy.pop("search_intent_info", None)
                     
-                    cursor.execute(
-                        """
-                        INSERT INTO opportunities (
-                            keyword, client_id, run_id, status, date_added, date_processed,
-                            strategic_score, blog_qualification_status, blog_qualification_reason,
-                            keyword_info, keyword_properties,
-                            search_intent_info, serp_overview, score_breakdown, ai_content_json,
-                            keyword_info_normalized_with_bing, keyword_info_normalized_with_clickstream, monthly_searches, traffic_value,
-                            check_url, related_keywords, keyword_categories, core_keyword, last_seen_at, metrics_history, keyword_id,
-                            full_data,
-                            cpc, competition, main_intent, search_volume_trend_json,
-                            competitor_social_media_tags_json, competitor_page_timing_json,
-                        social_media_posts_status, search_volume, keyword_difficulty
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        (
-                            keyword,
-                            client_id,
-                            run_id,
-                            opp.get("status", "pending"),
-                            opp.get("date_added", datetime.now().isoformat()),
-                            opp.get("date_processed"),
-                            opp.get("strategic_score"),
-                            opp.get("blog_qualification_status"),
-                            opp.get("blog_qualification_reason"),
-                            json.dumps(keyword_info),
-                            json.dumps(keyword_properties),
-                            json.dumps(search_intent_info),
-                            json.dumps(opp.get("serp_overview")),
-                            json.dumps(opp.get("score_breakdown")),
-                            json.dumps(opp.get("ai_content")),
-                            json.dumps(opp.get("keyword_info_normalized_with_bing")),
-                            json.dumps(
-                                opp.get("keyword_info_normalized_with_clickstream")
-                            ),
-                            json.dumps(keyword_info.get("monthly_searches")),
-                            opp.get("traffic_value", 0),
-                            opp.get("serp_info", {}).get("check_url"),
-                            json.dumps(opp.get("related_keywords")),
-                            json.dumps(keyword_info.get("categories")),
-                            keyword_properties.get("core_keyword"),
-                            datetime.now().isoformat(),
-                            json.dumps([]),
-                            keyword_id,
-                            json.dumps(full_data_copy), # Use the modified copy for full_data
-                            cpc_val,
-                            competition_val,
-                            main_intent_val,
-                            search_volume_trend_json_val,
-                            competitor_social_media_tags_json_val,
-                            competitor_page_timing_json_val,
-                            opp.get("social_media_posts_status", "draft"),
-                            keyword_info.get("search_volume"),
-                            keyword_properties.get("keyword_difficulty"),
+                    # Check if 'discovery_goal' column exists in the opportunities table
+                    cursor.execute("PRAGMA table_info(opportunities)")
+                    opportunities_columns = [col[1] for col in cursor.fetchall()]
+
+                    insert_columns = [
+                        "keyword", "client_id", "run_id", "status", "date_added", "date_processed",
+                        "strategic_score", "blog_qualification_status", "blog_qualification_reason",
+                        "keyword_info", "keyword_properties",
+                        "search_intent_info", "serp_overview", "score_breakdown", "ai_content_json",
+                        "keyword_info_normalized_with_bing", "keyword_info_normalized_with_clickstream", "monthly_searches", "traffic_value",
+                        "check_url", "related_keywords", "keyword_categories", "core_keyword", "last_seen_at", "metrics_history", "keyword_id",
+                        "full_data",
+                        "cpc", "competition", "main_intent", "search_volume_trend_json",
+                        "competitor_social_media_tags_json", "competitor_page_timing_json",
+                        "social_media_posts_status", "search_volume", "keyword_difficulty",
+                    ]
+                    insert_values = [
+                        keyword,
+                        client_id,
+                        run_id,
+                        opp.get("status", "pending"),
+                        opp.get("date_added", datetime.now().isoformat()),
+                        opp.get("date_processed"),
+                        opp.get("strategic_score"),
+                        opp.get("blog_qualification_status"),
+                        opp.get("blog_qualification_reason"),
+                        json.dumps(keyword_info),
+                        json.dumps(keyword_properties),
+                        json.dumps(search_intent_info),
+                        json.dumps(opp.get("serp_overview")),
+                        json.dumps(opp.get("score_breakdown")),
+                        json.dumps(opp.get("ai_content")),
+                        json.dumps(opp.get("keyword_info_normalized_with_bing")),
+                        json.dumps(
+                            opp.get("keyword_info_normalized_with_clickstream")
                         ),
+                        json.dumps(keyword_info.get("monthly_searches")),
+                        opp.get("traffic_value", 0),
+                        opp.get("serp_info", {}).get("check_url"),
+                        json.dumps(opp.get("related_keywords")),
+                        json.dumps(keyword_info.get("categories")),
+                        keyword_properties.get("core_keyword"),
+                        datetime.now().isoformat(),
+                        json.dumps([]),
+                        keyword_id,
+                        json.dumps(full_data_copy),
+                        cpc_val,
+                        competition_val,
+                        main_intent_val,
+                        search_volume_trend_json_val,
+                        competitor_social_media_tags_json_val,
+                        competitor_page_timing_json_val,
+                        opp.get("social_media_posts_status", "draft"),
+                        keyword_info.get("search_volume"),
+                        keyword_properties.get("keyword_difficulty"),
+                    ]
+
+                    if "discovery_goal" in opportunities_columns:
+                        insert_columns.append("discovery_goal")
+                        insert_values.append(discovery_goal)
+
+                    placeholders = ", ".join(["?"] * len(insert_columns))
+                    columns_str = ", ".join(insert_columns)
+
+                    cursor.execute(
+                        f"""
+                        INSERT INTO opportunities ({columns_str})
+                        VALUES ({placeholders})
+                        """,
+                        tuple(insert_values),
                     )
 
         return num_added
@@ -970,7 +990,8 @@ class DatabaseManager:
                     "high_value_categories",
                     "hostile_serp_features",
                     "final_validation_non_blog_domains",
-                    "prohibited_intents",  # NEW
+                    "prohibited_intents",
+                    "discovery_goals", # NEW: Handle discovery_goals as a list
                 ]
                 for key in list_keys:
                     if settings.get(key) is not None and isinstance(settings[key], str):
@@ -1099,11 +1120,28 @@ class DatabaseManager:
 
             for key, value in settings.items():
                 if key in schema_columns and key not in ["client_id", "last_updated"]:
-                    db_value = value
                     if isinstance(value, list):
+                        # Convert lists to comma-separated strings for DB storage
                         db_value = ",".join(map(str, value))
                     elif isinstance(value, bool):
                         db_value = 1 if value else 0
+                    elif key in ['brand_tone', 'target_audience', 'terms_to_avoid', 'expert_persona']:
+                        # For sensitive text fields, strip all HTML.
+                        db_value = bleach.clean(str(value), tags=[], strip=True)
+                    elif key == 'client_knowledge_base':
+                        # For client_knowledge_base, allow a specific set of safe HTML tags for richer content.
+                        KB_ALLOWED_TAGS = ['p', 'br', 'b', 'strong', 'i', 'em', 'ul', 'ol', 'li', 'a', 'h1', 'h2', 'h3']
+                        KB_ALLOWED_ATTRIBUTES = {'a': ['href', 'title']}
+                        db_value = bleach.clean(str(value), tags=KB_ALLOWED_TAGS, attributes=KB_ALLOWED_ATTRIBUTES, strip=True)
+                    elif key == 'onpage_custom_checks_thresholds':
+                        # If it's meant to be a JSON string, ensure it's stored as one.
+                        if isinstance(value, dict):
+                            db_value = json.dumps(value)
+                        else:
+                            db_value = str(value)
+                    # For other string types (like custom_prompt_template), store directly
+                    else:
+                        db_value = value
 
                     set_clauses.append(f"{key} = ?")
                     values.append(db_value)

@@ -1,84 +1,140 @@
-import React from 'react';
-import { Input, Button, Typography, Form, Row, Col, InputNumber, Select, Card, Tooltip, Divider } from 'antd';
+import React, { useState, useEffect } from 'react'; // Add useEffect
+import { Input, Button, Typography, Form, Row, Col, InputNumber, Select, Card, Tooltip, Divider, Spin } from 'antd'; // Add Spin
 import { RocketOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { useQuery } from 'react-query'; // Add useQuery
+import { getDiscoveryGoalsAndDefaults } from '../../../services/discoveryService'; // NEW: Import service
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 
 const DiscoveryForm = ({ isSubmitting, onSubmit }) => {
   const [form] = Form.useForm();
+  const [selectedGoal, setSelectedGoal] = useState(null);
+
+  const { data: goalsAndDefaults, isLoading: isLoadingGoals } = useQuery(
+    'discoveryGoalsAndDefaults',
+    getDiscoveryGoalsAndDefaults,
+    {
+      staleTime: Infinity,
+      cacheTime: Infinity,
+      onSuccess: (data) => {
+        if (data && data.length > 0) {
+          // Set initial goal and pre-fill form values
+          const defaultGoal = data[0].name;
+          setSelectedGoal(defaultGoal);
+          form.setFieldsValue({
+            discovery_goal: defaultGoal,
+            min_search_volume: data[0].default_sv,
+            max_keyword_difficulty: data[0].default_kd,
+          });
+        }
+      }
+    }
+  );
+
+  useEffect(() => {
+    // When the selectedGoal changes, update the KD/SV defaults in the form
+    if (selectedGoal && goalsAndDefaults) {
+      const currentGoalPreset = goalsAndDefaults.find(goal => goal.name === selectedGoal);
+      if (currentGoalPreset) {
+        form.setFieldsValue({
+          min_search_volume: currentGoalPreset.default_sv,
+          max_keyword_difficulty: currentGoalPreset.default_kd,
+        });
+      }
+    }
+  }, [selectedGoal, goalsAndDefaults, form]);
+
 
   const onFinish = (values) => {
-    const { keyword, search_volume_value, difficulty_value, competition_level, search_intent } = values;
+    const { keyword, discovery_goal, min_search_volume, max_keyword_difficulty } = values;
 
-    const filters = [];
-    const filterPathPrefix = 'keyword_data.';
-    if (search_volume_value !== undefined && search_volume_value !== null) {
-      filters.push({ field: `${filterPathPrefix}keyword_info.search_volume`, operator: '>', value: search_volume_value });
-    }
-    if (difficulty_value !== undefined && difficulty_value !== null) {
-      filters.push({ field: `${filterPathPrefix}keyword_properties.keyword_difficulty`, operator: '<', value: difficulty_value });
-    }
-    if (competition_level && competition_level.length > 0) {
-      filters.push({ field: `${filterPathPrefix}keyword_info.competition_level`, operator: 'in', value: competition_level });
-    }
-    if (search_intent && search_intent.length > 0) {
-      filters.push({ field: `${filterPathPrefix}search_intent_info.main_intent`, operator: 'in', value: search_intent });
-    }
+    const goalMap = {
+      "Find Low-Hanging Fruit": "Low-Hanging Fruit",
+      "Target High-Value Conversions": "High-Value Conversions",
+      "Lead Thought Leadership & Authority Building": "Thought Leadership",
+    };
 
     const runData = {
       seed_keywords: [keyword],
-      filters: filters.length > 0 ? filters : null,
+      discovery_goal: goalMap[discovery_goal] || discovery_goal,
+      min_search_volume: min_search_volume,
+      max_keyword_difficulty: max_keyword_difficulty,
     };
     
     onSubmit({ runData });
   };
 
+  const handleGoalChange = (goalName) => {
+    setSelectedGoal(goalName);
+    // Defaults for KD/SV will be set by the useEffect hook
+  };
+
   return (
     <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{
-      search_volume_value: 500,
-      difficulty_value: 20,
-      competition_level: ['LOW'],
-      search_intent: ['informational'],
+      // Initial values will be set by useEffect after goals load
     }}>
       <Title level={3}>Start a New Discovery Run</Title>
       <Text type="secondary" style={{ marginBottom: '24px', display: 'block' }}>
-        Enter a broad topic or a specific keyword to begin exploring related content opportunities.
+        Select a strategic goal and enter a seed keyword to begin exploring related content opportunities.
       </Text>
 
-      <Form.Item 
-        name="keyword" 
-        rules={[{ required: true, message: 'Please enter a seed keyword.' }]}
-        label={<Title level={4}>Seed Keyword</Title>}
-      >
-        <Input placeholder="e.g., 'AI in marketing' or 'how to start a blog'" size="large" />
-      </Form.Item>
+      <Row gutter={24}>
+        <Col xs={24} sm={12}>
+          <Form.Item 
+            name="discovery_goal"
+            label={<Title level={4}>Discovery Goal</Title>}
+            rules={[{ required: true, message: 'Please select a discovery goal.' }]}
+          >
+            <Select 
+              placeholder="Select a strategic goal" 
+              size="large" 
+              loading={isLoadingGoals}
+              onChange={handleGoalChange}
+              value={selectedGoal}
+            >
+              {goalsAndDefaults?.map(goal => (
+                <Option key={goal.name} value={goal.name}>{goal.name}</Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={12}>
+          <Form.Item 
+            name="keyword" 
+            rules={[{ required: true, message: 'Please enter a seed keyword.' }]}
+            label={<Title level={4}>Seed Keyword</Title>}
+          >
+            <Input placeholder="e.g., 'AI in marketing' or 'how to start a blog'" size="large" />
+          </Form.Item>
+        </Col>
+      </Row>
       
       <Divider orientation="left" style={{ color: 'rgba(0,0,0,.55)', fontSize: '16px', marginTop: '32px' }}>
-        Fine-tune with Filters (Optional)
+        Customize (Optional)
       </Divider>
-        <Row gutter={24}>
+      <Row gutter={24}>
           <Col xs={24} sm={12}>
             <Form.Item 
-              name="search_volume_value" 
+              name="min_search_volume" 
               label={
                 <span>
-                  Monthly Search Volume (Greater than) 
+                  Min. Monthly Search Volume 
                   <Tooltip title="Only find keywords with at least this many monthly searches.">
                     <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)' }} />
                   </Tooltip>
                 </span>
               }
             >
-              <InputNumber style={{ width: '100%' }} placeholder="e.g., 500" />
+              <InputNumber style={{ width: '100%' }} placeholder="e.g., 500" min={0} />
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>
             <Form.Item 
-              name="difficulty_value" 
+              name="max_keyword_difficulty" 
               label={
                 <span>
-                  SEO Difficulty (Less than) 
+                  Max. SEO Difficulty 
                   <Tooltip title="Only find keywords with a difficulty score below this value (0-100).">
                     <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)' }} />
                   </Tooltip>
@@ -88,49 +144,10 @@ const DiscoveryForm = ({ isSubmitting, onSubmit }) => {
               <InputNumber style={{ width: '100%' }} placeholder="e.g., 20" min={0} max={100} />
             </Form.Item>
           </Col>
-          <Col xs={24} sm={12}>
-            <Form.Item 
-              name="competition_level" 
-              label={
-                <span>
-                  Competition Level 
-                  <Tooltip title="Filter by the level of competition for paid ads.">
-                    <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)' }} />
-                  </Tooltip>
-                </span>
-              }
-            >
-              <Select mode="multiple" placeholder="Any" allowClear>
-                <Option value="LOW">Low</Option>
-                <Option value="MEDIUM">Medium</Option>
-                <Option value="HIGH">High</Option>
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Form.Item 
-              name="search_intent" 
-              label={
-                <span>
-                  Search Intent 
-                  <Tooltip title="Filter for keywords based on the user's goal (e.g., to learn, to buy).">
-                    <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,.45)' }} />
-                  </Tooltip>
-                </span>
-              }
-            >
-              <Select mode="multiple" placeholder="Any" allowClear>
-                <Option value="informational">Informational</Option>
-                <Option value="commercial">Commercial</Option>
-                <Option value="transactional">Transactional</Option>
-                <Option value="navigational">Navigational</Option>
-              </Select>
-            </Form.Item>
-          </Col>
         </Row>
 
       <Form.Item style={{ marginTop: '32px', marginBottom: 0 }}>
-        <Button type="primary" htmlType="submit" icon={<RocketOutlined />} loading={isSubmitting} size="large" block>
+        <Button type="primary" htmlType="submit" icon={<RocketOutlined />} loading={isSubmitting || isLoadingGoals} size="large" block>
           Find Opportunities
         </Button>
       </Form.Item>

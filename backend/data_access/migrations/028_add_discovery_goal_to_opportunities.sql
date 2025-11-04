@@ -1,0 +1,1 @@
+ALTER TABLE opportunities ADD COLUMN discovery_goal TEXT;

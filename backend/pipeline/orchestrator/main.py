@@ -12,7 +12,7 @@ from backend.agents.html_formatter import HtmlFormatter
 from backend.core.blueprint_factory import BlueprintFactory
 from backend.agents.content_auditor import ContentAuditor
 from backend.agents.prompt_assembler import DynamicPromptAssembler
-from backend.services.serp_analysis_service import SerpAnalysisService
+from backend.core.serp_analyzer import FullSerpAnalyzer
 from backend.pipeline.step_03_prioritization.scoring_engine import ScoringEngine
 from backend.pipeline.step_01_discovery.cannibalization_checker import (
     CannibalizationChecker,
@@ -25,7 +25,7 @@ from .content_orchestrator import ContentOrchestrator
 from .image_orchestrator import ImageOrchestrator
 from .social_orchestrator import SocialOrchestrator
 from .validation_orchestrator import ValidationOrchestrator
-from .workflow_orchestrator import WorkflowOrchestrator
+from .workflow_orchestrator import WorkflowOrchestrator as BaseWorkflowOrchestrator # Renamed to avoid circular reference
 from .cost_estimator import CostEstimator
 
 logger = logging.getLogger(__name__)
@@ -38,17 +38,17 @@ class WorkflowOrchestrator(
     ImageOrchestrator,
     SocialOrchestrator,
     ValidationOrchestrator,
-    WorkflowOrchestrator,
+    BaseWorkflowOrchestrator, # Use the base workflow orchestrator for main logic
     CostEstimator,
 ):
     def __init__(
         self,
-        global_cfg_manager: ConfigManager,
+        global_cfg_manager: ConfigManager, # Ensure this is passed
         db_manager: DatabaseManager,
         client_id: str,
         job_manager: "JobManager",
     ):
-        self.global_cfg_manager = global_cfg_manager
+        self.global_cfg_manager = global_cfg_manager # Store it
         self.db_manager = db_manager
         self.client_id = client_id
         self.job_manager = job_manager
@@ -75,7 +75,7 @@ class WorkflowOrchestrator(
         )
         self.html_formatter = HtmlFormatter()
         self.blueprint_factory = BlueprintFactory(
-            self.openai_client, self.client_cfg, self.dataforseo_client, self.db_manager
+            self.openai_client, self.client_cfg, self.dataforseo_client, self.db_manager, self.global_cfg_manager # NEW: Pass global_cfg_manager
         )
         self.scoring_engine = ScoringEngine(self.client_cfg)
         self.cannibalization_checker = CannibalizationChecker(
@@ -86,4 +86,4 @@ class WorkflowOrchestrator(
         )
         self.content_auditor = ContentAuditor()
         self.prompt_assembler = DynamicPromptAssembler(self.db_manager)
-        self.serp_analysis_service = SerpAnalysisService(self.dataforseo_client, self.client_cfg)
+        self.serp_analysis_service = FullSerpAnalyzer(self.dataforseo_client, self.client_cfg)

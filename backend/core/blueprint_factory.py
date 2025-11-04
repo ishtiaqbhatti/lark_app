@@ -1,17 +1,18 @@
 import json
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
 
 from backend.agents.brief_assembler import BriefAssembler
 from backend.agents.internal_linking_suggester import InternalLinkingSuggester
 from backend.core import utils
-from backend.data_access.database_manager import DatabaseManager
+from backend.app_config.manager import ConfigManager # NEW: Import ConfigManager
+from backend.data_access.database_manager import DatabaseManager # NEW: Import DatabaseManager
 
 
 class BlueprintFactory:
     def __init__(
-        self, openai_client, client_cfg, dataforseo_client, db_manager: DatabaseManager
+        self, openai_client, client_cfg, dataforseo_client, db_manager: DatabaseManager, global_cfg_manager: ConfigManager # NEW: Add global_cfg_manager
     ):
         self.brief_assembler = BriefAssembler(openai_client)
         self.internal_linking_suggester = InternalLinkingSuggester(
@@ -19,6 +20,7 @@ class BlueprintFactory:
         )
         self.logger = logging.getLogger(self.__class__.__name__)
         self.client_cfg = client_cfg
+        self.global_cfg_manager = global_cfg_manager # NEW: Store it
 
     def _create_executive_summary(self, blueprint_data: Dict[str, Any]) -> str:
         # Placeholder until SummaryGenerator is integrated here
@@ -31,6 +33,7 @@ class BlueprintFactory:
         analysis_data: Dict[str, Any],
         total_api_cost: float,
         client_id: str,
+        discovery_goal: Optional[str] = None # NEW: Add discovery_goal parameter
     ) -> Dict[str, Any]:
         """Assembles all data into the final, structured JSON blueprint."""
 
@@ -41,7 +44,7 @@ class BlueprintFactory:
             and "message" in competitor_analysis_data[0]
         ):
             analysis_notes = "No qualified article-based competitors were found in the top results after rigorous qualification. This SERP may be dominated by social media, video, or other non-article formats, making it a challenging topic to rank for with a standard blog post."
-            competitor_analysis_data = []  # Ensure it's always an empty list of competitors
+            competitor_analysis_data = []
 
         recommended_strategy_data = analysis_data.get("recommended_strategy", {})
         self.logger.info(
@@ -55,6 +58,7 @@ class BlueprintFactory:
                 "generated_at": datetime.now().isoformat(),
                 "total_api_cost": round(total_api_cost, 4),
                 "client_id": client_id,
+                "discovery_goal": discovery_goal, # NEW: Include discovery goal in metadata
             },
             "winning_keyword": winning_keyword_data,
             "serp_overview": analysis_data.get("serp_overview", {}),

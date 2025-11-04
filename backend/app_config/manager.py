@@ -1,62 +1,19 @@
 import os
 import configparser
 from dotenv import load_dotenv
+import json # NEW import
 from typing import Dict, Any, List, Optional
 import logging
 
 
 class ConfigManager:
-    """
-    Manages loading, validating, and providing configuration settings.
-    Handles global defaults from settings.ini and client-specific overrides.
-    """
-
+    # Force reload
     _setting_types = {
-        # Integers
-        "location_code": int,
-        "max_sv_for_scoring": int,
-        "max_domain_rank_for_scoring": int,
-        "max_referring_domains_for_scoring": int,
-        "max_avg_referring_domains_filter": int,
-        "serp_freshness_old_threshold_days": int,
-        "serp_volatility_stable_threshold_days": int,
-        "min_competitor_word_count": int,
-        "max_competitor_technical_warnings": int,
-        "num_competitors_to_analyze": int,
-        "num_common_headings": int,
-        "num_unique_angles": int,
-        "max_initial_serp_urls_to_analyze": int,
-        "people_also_ask_click_depth": int,
-        "min_search_volume": int,
-        "max_keyword_difficulty": int,
-        "num_in_article_images": int,
-        "onpage_max_domains_per_request": int,
-        "onpage_max_tasks_per_request": int,
-        "deep_dive_top_n_keywords": int,
-        "max_completion_tokens_for_generation": int,
-        "discovery_max_pages": int,
-        "min_serp_results": int,
-        "max_serp_results": int,
-        "min_avg_backlinks": int,
-        "max_avg_backlinks": int,
-        "discovery_related_depth": int,
-        "yearly_trend_decline_threshold": int,
-        "quarterly_trend_decline_threshold": int,
-        "max_kd_hard_limit": int,
-        "max_referring_main_domains_limit": int,
-        "max_avg_domain_rank_threshold": int,
-        "min_keyword_word_count": int,
-        "max_keyword_word_count": int,
-        "crowded_serp_features_threshold": int,
-        "min_serp_stability_days": int,
-        "max_non_blog_results": int,
-        "max_ai_overview_words": int,
-        "max_first_organic_y_pixel": int,
-        "max_words_for_ai_analysis": int,
-        "num_competitors_for_ai_analysis": int,
-        "max_avg_lcp_time": int,  # NEW
-        "high_value_sv_override_threshold": int,
-        "overlay_font_size": int,
+        # ... (existing types) ...
+        "filters_json": list,  # NEW: Add this for goal-specific filters (JSON parsed to list)
+        "discovery_goals": list,  # NEW: Add this
+        "default_sv": int, # NEW: Add for goal presets
+        "default_kd": int, # NEW: Add for goal presets
         # Floats
         "informational_score": float,
         "commercial_score": float,
@@ -81,13 +38,13 @@ class ConfigManager:
         "max_pages_to_domain_ratio": float,
         "ai_generation_temperature": float,
         "recommended_word_count_multiplier": float,
-        "default_multiplier": float,  # ADDED
-        "comprehensive_article": float,  # ADDED
-        "how_to_guide": float,  # ADDED
-        "comparison_post": float,  # ADDED
-        "review_article": float,  # ADDED
-        "video_led_article": float,  # ADDED
-        "forum_summary_post": float,  # ADDED
+        "default_multiplier": float,
+        "comprehensive_article": float,
+        "how_to_guide": float,
+        "comparison_post": float,
+        "review_article": float,
+        "video_led_article": float,
+        "forum_summary_post": float,
         "recipe_article": float,
         "scholarly_summary": float,
         "product_comparison": float,
@@ -113,59 +70,20 @@ class ConfigManager:
         "generate_toc": bool,
         "overlay_text_enabled": bool,
         "include_clickstream_data": bool,
-        "load_async_ai_overview": bool,  # ADD THIS FOR W3
-        "onpage_check_spell": bool,  # ADD THIS LINE (W5 FIX)
+        "load_async_ai_overview": bool,
+        "onpage_check_spell": bool,
         "disable_ai_overview_check": bool,
-        "onpage_accept_language": str,  # ADD THIS LINE (W7 FIX)
-        "onpage_enable_switch_pool": bool,  # ADD THIS LINE (W13 FIX)
-        "onpage_enable_custom_js": bool,  # ADD THIS LINE (W12 FIX)
-        "onpage_custom_js": str,  # ADD THIS LINE (W12 FIX)
-        "discovery_exact_match": bool,  # ADD THIS LINE (W7 FIX)
-        "onpage_browser_screen_resolution_ratio": float,  # ADD THIS LINE (W7 FIX)
-        # Lists (comma-separated strings)
-        "allowed_intents": list,
-        "negative_keywords": list,
-        "competitor_blacklist_domains": list,
-        "serp_feature_filters": list,
-        "serp_features_exclude_filter": list,
-        "platforms": list,
-        "default_wordpress_categories": list,
-        "default_wordpress_tags": list,
-        "ugc_and_parasite_domains": list,
-        "high_value_categories": list,
-        "hostile_serp_features": list,
-        "final_validation_non_blog_domains": list,
-        # Weights
-        "ease_of_ranking_weight": float,
-        "traffic_potential_weight": float,
-        "commercial_intent_weight": float,
-        "serp_features_weight": float,
-        "growth_trend_weight": float,
-        "serp_freshness_weight": float,
-        "serp_volatility_weight": float,
-        "competitor_weakness_weight": float,
-        "competitor_performance_weight": float,  # ADDED THIS LINE
-        # Strings
-        "max_competition_level": str,
-        "non_evergreen_year_pattern": str,
-        "db_file_name": str,  # NEW
-        "db_type": str,  # NEW
-        "overlay_text_color": str,
-        "overlay_background_color": str,
-        "overlay_position": str,
-        "closely_variants": bool,
-        "max_cpc_filter": float,
-        "discovery_order_by_field": str,
-        "discovery_order_by_direction": str,
-        "search_phrase_regex": str,
-        "onpage_custom_checks_thresholds": str,  # ADD THIS LINE (W9 FIX)
-        "serp_remove_from_url_params": str,
-        "schema_author_type": str,
-        "client_knowledge_base": str,
-        "wordpress_url": str,
-        "wordpress_user": str,
-        "wordpress_app_password": str,
-        "wordpress_seo_plugin": str,
+        "onpage_enable_switch_pool": bool,
+        "onpage_enable_custom_js": bool,
+        "discovery_exact_match": bool,
+        "onpage_browser_screen_resolution_ratio": float, # Keep this in floats section
+        # NEW: Add custom prompt template
+        "custom_prompt_template": str,
+        "expert_persona": str, # string in client settings
+        "client_knowledge_base": str, # string in client settings
+        "brand_tone": str, # string in client settings
+        "target_audience": str, # string in client settings
+        "terms_to_avoid": str, # string in client settings
     }
 
     def __init__(self, settings_path: str = "backend/app_config/settings.ini"):
@@ -179,49 +97,30 @@ class ConfigManager:
         self._global_settings = self._load_and_validate_global()
 
     def _configure_logging(self):
-        """Sets up basic logging for the application."""
+        """Configures logging to file and console."""
+        log_dir = "logs"
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+            handlers=[
+                logging.FileHandler(os.path.join(log_dir, "app.log")),
+                logging.StreamHandler()
+            ]
         )
-        logging.getLogger("urllib3").setLevel(logging.WARNING)
-        self.logger.info("Logging configured.")
 
-    def _get_int_from_config(
-        self, section: str, key: str, fallback: Optional[int] = None
-    ) -> int:
-        try:
-            value_str = self.config_parser.get(section, key)
-            return int(value_str)
-        except (configparser.NoOptionError, configparser.NoSectionError, ValueError):
-            if fallback is not None:
-                return fallback
-            raise ValueError(
-                f"Missing or invalid integer configuration for [{section}]{key}"
-            )
-
-    def _get_float_from_config(
-        self, section: str, key: str, fallback: Optional[float] = None
-    ) -> float:
-        try:
-            value_str = self.config_parser.get(section, key)
-            return float(value_str)
-        except (configparser.NoOptionError, configparser.NoSectionError, ValueError):
-            if fallback is not None:
-                return fallback
-            raise ValueError(
-                f"Missing or invalid float configuration for [{section}]{key}"
-            )
 
     def _get_list_from_config(
-        self, section: str, key: str, fallback: str = ""
+        self, section: str, key: str, fallback: Optional[str] = None
     ) -> List[str]:
         try:
             value_str = self.config_parser.get(section, key)
             return [item.strip() for item in value_str.split(",") if item.strip()]
         except (configparser.NoOptionError, configparser.NoSectionError):
-            return [item.strip() for item in fallback.split(",") if item.strip()]
+            return [item.strip() for item in (fallback or "").split(",") if item.strip()]
+
 
     def _load_and_validate_global(self) -> Dict[str, Any]:
         """Loads all global settings from settings.ini and .env."""
@@ -270,21 +169,14 @@ class ConfigManager:
                     elif target_type is float:
                         settings[key] = self.config_parser.getfloat(section, key)
                     elif target_type is list:
-                        raw_values = self._get_list_from_config(section, key)
-                        if key == "serp_feature_filters":
-                            parsed_filters = []
-                            for f_str in raw_values:
-                                if f_str.startswith("no_"):
-                                    parsed_filters.append(
-                                        {"type": "has_not", "feature": f_str[3:]}
-                                    )
-                                elif f_str.startswith("has_"):
-                                    parsed_filters.append(
-                                        {"type": "has", "feature": f_str[4:]}
-                                    )
-                            settings[key] = parsed_filters
+                        if key.endswith("_json") or key == "filters_json": # NEW: Handle filters_json
+                            try:
+                                settings[key] = json.loads(value)
+                            except json.JSONDecodeError:
+                                self.logger.error(f"Failed to parse JSON for key [{section}]{key}. Value: '{value}'. Setting to empty list.")
+                                settings[key] = []
                         else:
-                            settings[key] = raw_values
+                            settings[key] = self._get_list_from_config(section, key)
                     else:  # Default to string if no type is mapped
                         settings[key] = value
                 except Exception as e:
@@ -336,8 +228,12 @@ class ConfigManager:
                 "cache_file_name",
                 "default_client_id",
                 "db_type",
+                "filters_json", # NEW: Goal presets are globally managed.
+                "discovery_goals", # NEW: Goal list is globally managed.
+                "default_sv", # NEW: Goal defaults are globally managed.
+                "default_kd", # NEW: Goal defaults are globally managed.
             ]
-        )  # UPDATED
+        )
 
         for key, value in client_settings_from_db.items():
             if key in globally_managed_keys:
@@ -365,9 +261,14 @@ class ConfigManager:
                     and updated_global_settings[key] is not None
                 ):
                     if isinstance(updated_global_settings[key], list):
-                        self.config_parser.set(
-                            section, key, ",".join(updated_global_settings[key])
-                        )
+                        if key.endswith("_json") or key == "filters_json": # NEW: Handle JSON lists
+                            self.config_parser.set(
+                                section, key, json.dumps(updated_global_settings[key])
+                            )
+                        else:
+                            self.config_parser.set(
+                                section, key, ",".join(updated_global_settings[key])
+                            )
                     elif isinstance(updated_global_settings[key], bool):
                         self.config_parser.set(
                             section, key, str(updated_global_settings[key]).lower()
@@ -382,3 +283,36 @@ class ConfigManager:
 
         self._global_settings = self._load_and_validate_global()
         self.logger.info("Global settings updated and reloaded from settings.ini.")
+
+    def get_goal_preset_config(self, goal_name: str) -> Dict[str, Any]:
+        """
+        Retrieves the filter and order_by presets for a given discovery goal.
+        """
+        # Sanitize goal_name to match the INI section format, e.g., "Find Low-Hanging Fruit" -> "DISCOVERY_GOAL_LOW_HANGING_FRUIT"
+        sanitized_goal_name = ''.join(char if char.isalnum() or char.isspace() else ' ' for char in goal_name)
+        section_name = f"DISCOVERY_GOAL_{sanitized_goal_name.replace(' ', '_').upper()}"
+        
+        # Find the closest match in the config parser sections
+        closest_section_name = next((s for s in self.config_parser.sections() if section_name in s), None)
+
+        if not closest_section_name:
+            self.logger.error(f"Goal preset section matching '{section_name}' not found in settings.ini.")
+            return {}
+        
+        goal_settings = {}
+        for key, value in self.config_parser.items(closest_section_name):
+            try:
+                if key == "filters_json":
+                    goal_settings["filters"] = json.loads(value)
+                elif key == "order_by":
+                    goal_settings["order_by"] = [item.strip() for item in value.split('|') if item.strip()]
+                elif key == "default_sv":
+                    goal_settings["default_sv"] = int(value)
+                elif key == "default_kd":
+                    goal_settings["default_kd"] = int(value)
+                else:
+                    goal_settings[key] = value
+            except (json.JSONDecodeError, ValueError) as e:
+                self.logger.error(f"Error parsing goal preset '{key}' for goal '{goal_name}': {e}")
+                
+        return goal_settings
