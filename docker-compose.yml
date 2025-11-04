@@ -9,6 +9,7 @@ services:
       - ./.env
     volumes:
       - ./data:/app/data
+      - ./generated_images:/app/generated_images
 
   frontend:
     build: ./client/my-content-app
