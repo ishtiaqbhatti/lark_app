@@ -1,1 +1,0 @@
-import{aF as e}from"./index-igZMX4Bp.js";const r=(t,a)=>e.get(`/api/clients/${t}/opportunities`,{params:a}),s=t=>e.get(`/api/clients/${t}/dashboard`),o=t=>e.get(`/api/opportunities/${t}`);export{s as a,o as b,r as g};
